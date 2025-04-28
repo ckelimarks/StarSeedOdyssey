@@ -56,25 +56,63 @@ const pickupSoundSegments = [
 ];
 let lastPlayedPickupIndex = -1; // Track the last played index
 
+// Planet Configuration Data Structure
+const planetConfigs = [
+    {
+        name: 'AquaPrime', // Our initial "home" planet
+        radius: 40,
+        color: 0x0055ff, // Slightly different blue
+        orbitalDistance: 150, // Current distance
+        orbitalSpeed: 0.005, // Radians per frame (adjust later)
+        initialAngle: 0,    // Starting angle in orbit
+        isHome: true // Flag to identify the starting planet
+    },
+    {
+        name: 'Infernia',
+        radius: 30,
+        color: 0xff6600, // Orangey-red
+        orbitalDistance: 250,
+        orbitalSpeed: 0.003,
+        initialAngle: Math.PI / 2, // Start at 90 degrees
+        isHome: false
+    },
+    {
+        name: 'Verdant Minor',
+        radius: 25,
+        color: 0x00ff88, // Greenish
+        orbitalDistance: 350,
+        orbitalSpeed: 0.002,
+        initialAngle: Math.PI, // Start at 180 degrees
+        isHome: false
+    }
+    // Add more planets later
+];
+
+// Object to store planet meshes and their current orbital angles
+const planets = {}; 
+
+// Temporary vectors for world coordinate calculations
+const _tempVector = new THREE.Vector3();
+const _playerWorldPos = new THREE.Vector3();
+const _gemWorldPos = new THREE.Vector3();
+const _homePlanetWorldPos = new THREE.Vector3();
+
 function createCube(size, color, position, gemType) {
     const geometry = new THREE.BoxGeometry(size, size, size);
     const material = new THREE.MeshStandardMaterial({ 
         color: color, 
-        roughness: 0.3, 
-        metalness: 0.8,
-        emissive: color,
-        emissiveIntensity: 0.3
+        roughness: 0.3, // Keep some roughness for non-glowing parts
+        metalness: 0.8, // Keep metalness for reflections
+        emissive: color, // Set emissive color to the base color
+        emissiveIntensity: 0.6 // Adjust intensity for desired glow
     });
     const cube = new THREE.Mesh(geometry, material);
     cube.position.copy(position);
     cube.gemType = gemType;
-    scene.add(cube);
-    
-    // Add continuous rotation animation
-    cube.rotation.x = Math.random() * Math.PI;
-    cube.rotation.y = Math.random() * Math.PI;
-    cube.rotation.z = Math.random() * Math.PI;
-    
+    // Gems should cast shadows
+    cube.castShadow = true;
+    cube.receiveShadow = true; // Can optionally receive too
+    // scene.add(cube); // Added to homePlanet later
     return cube;
 }
 
@@ -99,19 +137,7 @@ function createSphere(radius, color, position, name) {
         };
 
         // Apply specific textures
-        if (name === 'home_planet') {
-            try {
-                const planetTexture = textureLoader.load('textures/ground.jpg');
-                // Optional: Configure texture wrapping and repeat if needed
-                planetTexture.wrapS = THREE.RepeatWrapping;
-                planetTexture.wrapT = THREE.RepeatWrapping;
-                planetTexture.repeat.set(4, 2); // Example repeat values
-                materialProps.map = planetTexture;
-                materialProps.color = 0xffffff; // Often set to white when using textures
-            } catch (error) {
-                console.error("Failed to load planet texture:", error);
-            }
-        } else if (name === 'player') {
+        if (name === 'player') {
             try {
                 const playerTexture = textureLoader.load('textures/Cracked_Asphalt_DIFF.png');
                 materialProps.map = playerTexture;
@@ -119,21 +145,37 @@ function createSphere(radius, color, position, name) {
             } catch (error) {
                 console.error("Failed to load player texture:", error);
             }
+        } else { // Apply default planet texture to all non-player, non-star spheres
+            try {
+                const planetTexture = textureLoader.load('textures/ground.jpg');
+                // Configure texture wrapping and repeat
+                planetTexture.wrapS = THREE.RepeatWrapping;
+                planetTexture.wrapT = THREE.RepeatWrapping;
+                planetTexture.repeat.set(8, 4); // Increased repeat to make texture smaller 
+                materialProps.map = planetTexture;
+            } catch (error) {
+                console.error("Failed to load default planet texture:", error);
+            }
         }
         
         material = new THREE.MeshStandardMaterial(materialProps);
     }
 
     const sphere = new THREE.Mesh(geometry, material);
+    // Configure shadows for non-star spheres
+    if (name !== 'star') {
+        sphere.castShadow = true;
+        sphere.receiveShadow = true;
+    }
     sphere.position.copy(position);
     if (name) {
         sphere.name = name;
     }
-    scene.add(sphere);
+    // scene.add(sphere); // Don't add directly to scene here anymore
     return sphere;
 }
 
-// Function to generate a random position on the planet surface
+// Function to generate a random position on the planet surface (LOCAL COORDINATES)
 function getRandomPositionOnPlanet() {
     // Generate a random point on a unit sphere
     const phi = Math.random() * 2 * Math.PI;
@@ -144,19 +186,22 @@ function getRandomPositionOnPlanet() {
     const y = Math.sin(theta) * Math.sin(phi);
     const z = Math.cos(theta);
     
-    // Scale by planet radius and offset by planet position
+    // Scale by planet radius (relative to planet center 0,0,0)
     const position = new THREE.Vector3(x, y, z);
-    position.multiplyScalar(homePlanetRadius + gemSize/2);
-    position.add(homePlanet.position);
+    const homePlanetConfig = planets[homePlanet.name].config; // Need config for radius
+    position.multiplyScalar(homePlanetConfig.radius + gemSize/2); 
+    // Removed: position.add(homePlanet.position); // No longer needed, position is local
     
     return position;
 }
 
-// Check if a position is too close to existing gems
+// Check if a position (local) is too close to existing gems (local)
 function isTooCloseToOtherGems(position) {
+    // Gems arrays store the meshes
     const allGems = [...fuelGems, ...seedGems, ...foodGems];
     
     for (const gem of allGems) {
+        // Distance check uses local positions as they share the same parent (homePlanet)
         if (position.distanceTo(gem.position) < gemSpacing) {
             return true;
         }
@@ -172,7 +217,7 @@ function generateGems(count, color, gemType, gemsArray) {
         let attempts = 0;
         const maxAttempts = 50;
         
-        // Try to find a position that's not too close to other gems
+        // Try to find a LOCAL position that's not too close to other LOCAL gem positions
         do {
             position = getRandomPositionOnPlanet();
             attempts++;
@@ -181,7 +226,13 @@ function generateGems(count, color, gemType, gemsArray) {
         
         if (attempts <= maxAttempts) {
             const gem = createCube(gemSize, color, position, gemType);
-            gemsArray.push(gem);
+            // Add gem to the home planet, not the scene
+            if (homePlanet) { 
+                homePlanet.add(gem);
+                gemsArray.push(gem);
+            } else {
+                console.error("GenerateGems: Cannot add gem, homePlanet not defined yet.");
+            }
         }
     }
 }
@@ -221,9 +272,42 @@ function createInventoryUI() {
     document.body.appendChild(uiContainer);
 }
 
+// --- Create Starfield --- 
+function createStarfield(starCount = 5000, radius = 5000) {
+    const starVertices = [];
+    for (let i = 0; i < starCount; i++) {
+        // Generate random point within a sphere
+        const theta = 2 * Math.PI * Math.random(); // Random angle around Y
+        const phi = Math.acos(2 * Math.random() - 1); // Random angle from Y pole
+        const r = radius * Math.cbrt(Math.random()); // Cube root for uniform density
+        
+        const x = r * Math.sin(phi) * Math.cos(theta);
+        const y = r * Math.sin(phi) * Math.sin(theta);
+        const z = r * Math.cos(phi);
+        starVertices.push(x, y, z);
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+
+    const material = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 3, // Adjust size as needed
+        sizeAttenuation: true // Points farther away appear smaller
+    });
+
+    const stars = new THREE.Points(geometry, material);
+    console.log(`INIT: Created starfield with ${starCount} stars.`);
+    return stars;
+}
+
 function init() {
     console.log("INIT: Started");
     scene = new THREE.Scene();
+    
+    // --- Add Starfield Background ---
+    const starfield = createStarfield();
+    scene.add(starfield);
     
     // Define Star Position and Size (Centralized)
     const starPosition = new THREE.Vector3(0, 0, 0);
@@ -231,31 +315,77 @@ function init() {
 
     // Create the star at the origin
     star = createSphere(starRadius, 0xffff00, starPosition, 'star');
+    scene.add(star);
     
-    // Home planet position - Move it much further out
-    // This will eventually be replaced by planet configuration
-    const homePlanetPosition = new THREE.Vector3(150, 0, 0); // Moved from (40,0,0) to (150,0,0)
-    homePlanet = createSphere(homePlanetRadius, 0x0000ff, homePlanetPosition, 'home_planet');
-    
-    // Calculate player position relative to the NEW planet position
-    const playerPosition = homePlanetPosition.clone().add(new THREE.Vector3(0, homePlanetRadius + playerRadius, 0));
-    playerSphere = createSphere(playerRadius, 0xff0000, playerPosition, 'player');
+    // --- Create Planets from Configuration ---
+    for (const config of planetConfigs) {
+        // Calculate initial position based on distance and angle
+        const initialX = config.orbitalDistance * Math.cos(config.initialAngle);
+        const initialZ = config.orbitalDistance * Math.sin(config.initialAngle);
+        const planetPosition = new THREE.Vector3(initialX, 0, initialZ); // Y=0 plane for now
+        
+        // Create the planet sphere
+        const planetMesh = createSphere(config.radius, config.color, planetPosition, config.name);
+        
+        // Store the mesh and its current angle
+        planets[config.name] = { 
+            mesh: planetMesh, 
+            config: config, // Store config for easy access
+            currentAngle: config.initialAngle 
+        };
+        
+        // Identify the home planet
+        if (config.isHome) {
+            homePlanet = planetMesh; // Assign the mesh to the global homePlanet variable
+            console.log(`INIT: Designated ${config.name} as home planet.`);
+        }
+    }
 
+    // Add planet meshes to the scene AFTER creating them all
+    for (const planetName in planets) {
+        scene.add(planets[planetName].mesh);
+    }
+
+    if (!homePlanet) {
+        console.error("INIT: No home planet designated in configurations!");
+        // Fallback: Assign the first planet as home if none is marked
+        if (planetConfigs.length > 0) {
+            const firstPlanetName = planetConfigs[0].name;
+            homePlanet = planets[firstPlanetName].mesh;
+            console.warn(`INIT: Falling back to ${firstPlanetName} as home planet.`);
+        } else {
+            console.error("INIT: Cannot proceed without any planets defined!");
+            return; // Stop initialization if no planets exist
+        }
+    }
+    
+    // --- Player Initialization (Relative to Home Planet) ---
+    const homePlanetConfig = planets[homePlanet.name].config;
+    // Player position is LOCAL to the home planet
+    const playerLocalPosition = new THREE.Vector3(0, homePlanetConfig.radius + playerRadius, 0); 
+    // Use white color since texture is applied
+    playerSphere = createSphere(playerRadius, 0xffffff, playerLocalPosition, 'player');
+    // Add player to the home planet, not the scene
+    homePlanet.add(playerSphere);
+    console.log(`INIT: Player added as child of ${homePlanet.name}`);
+
+    // --- Camera Setup ---
     const fov = 75;
     const aspect = window.innerWidth / window.innerHeight;
     const near = 0.1;
-    const far = 5000; 
+    const far = 10000; // Increased far plane significantly for larger distances
     camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
     
-    // Recalculate initial camera position based on new player position
+    // Recalculate initial camera position based on player's WORLD position
     const initialCameraOffset = new THREE.Vector3(0, 6, 12);
-    // Player position is now correctly calculated, so use it directly here
-    const initialSurfaceNormal = playerPosition.clone().sub(homePlanetPosition).normalize();
+    playerSphere.getWorldPosition(_playerWorldPos); // Get initial world pos
+    homePlanet.getWorldPosition(_homePlanetWorldPos); // Get initial planet world pos
+    const initialSurfaceNormal = _playerWorldPos.clone().sub(_homePlanetWorldPos).normalize();
     const initialQuaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), initialSurfaceNormal);
     const initialDesiredOffset = initialCameraOffset.clone().applyQuaternion(initialQuaternion);
-    const initialCameraPosition = playerPosition.clone().add(initialDesiredOffset);
+    const initialCameraPosition = _playerWorldPos.clone().add(initialDesiredOffset);
     camera.position.copy(initialCameraPosition);
-    camera.lookAt(playerPosition); // Look at the updated player position
+    camera.lookAt(_playerWorldPos); // Look at player's initial WORLD position
 
     // --- Audio Setup (Moved Here After Camera Initialization) ---
     try {
@@ -308,6 +438,9 @@ function init() {
         renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
+        // Enable shadow mapping
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Optional: softer shadows
     } catch (e) {
         console.error("INIT: Error creating WebGLRenderer:", e); return;
     }
@@ -320,6 +453,13 @@ function init() {
     // Increased range and intensity due to larger scale
     const starLight = new THREE.PointLight(0xffffdd, 5, 4000, 1.5);
     starLight.position.copy(starPosition);
+    // Enable shadow casting for the star light
+    starLight.castShadow = true;
+    // Configure shadow properties (might need tuning)
+    starLight.shadow.mapSize.width = 2048; // Shadow map resolution
+    starLight.shadow.mapSize.height = 2048;
+    starLight.shadow.camera.near = 50; // Adjust near/far based on scene scale
+    starLight.shadow.camera.far = 5000; 
     scene.add(starLight);
     
     // Remove the spotlight for now, PointLight should suffice with increased range
@@ -347,9 +487,16 @@ function init() {
     pathGeometry.setAttribute('position', new THREE.Float32BufferAttribute([0,0,0, 0,0,1], 3)); 
     pathLine = new THREE.Line(pathGeometry, pathMaterial);
     pathLine.computeLineDistances(); // Important for dashed lines
-    scene.add(pathLine);
+    // scene.add(pathLine); // <<< REMOVE: Don't add to main scene
+    // Add pathLine to homePlanet AFTER homePlanet is defined and player added
+    if (homePlanet) {
+        homePlanet.add(pathLine); 
+        console.log("INIT: Path trail added as child of homePlanet.");
+    } else {
+        console.error("INIT: Cannot add path trail, homePlanet not defined yet.");
+    }
 
-    // Generate collectible gems (Note: these will currently spawn near the new planet position)
+    // Generate collectible gems (these are now added to homePlanet inside the function)
     generateGems(10, 0xffa500, 'fuel', fuelGems);
     generateGems(10, 0x00ff00, 'seeds', seedGems);
     generateGems(10, 0xff6ec7, 'food', foodGems);
@@ -402,9 +549,35 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
+// --- Update Planet Orbits ---
+function updateOrbits() {
+    // Loop through each planet stored in the global `planets` object
+    for (const planetName in planets) {
+        const planetData = planets[planetName];
+        const config = planetData.config;
+        const mesh = planetData.mesh;
+        
+        // Update the current angle based on orbital speed
+        // Ensure consistent speed regardless of frame rate by potentially using deltaTime later
+        planetData.currentAngle += config.orbitalSpeed; 
+        
+        // Keep angle within 0 to 2*PI range (optional, but good practice)
+        planetData.currentAngle %= (2 * Math.PI);
+        
+        // Calculate new X and Z coordinates based on the new angle and orbital distance
+        const newX = config.orbitalDistance * Math.cos(planetData.currentAngle);
+        const newZ = config.orbitalDistance * Math.sin(planetData.currentAngle);
+        
+        // Update the planet mesh's position (Y remains 0 for now)
+        mesh.position.set(newX, 0, newZ);
+    }
+}
+
 function animate() {
     requestAnimationFrame(animate);
 
+    updateOrbits(); // Update planet positions first
+    
     // Re-enable player movement and camera updates
     updatePlayerMovement();
     updateCamera();
@@ -424,10 +597,15 @@ function updatePlayerMovement() {
     // Constants for physics are defined globally
     const POLE_THRESHOLD = 1e-8; // Smaller threshold for near-zero checks
 
-    // Calculate the up vector (normal to planet surface)
-    const planetUp = playerSphere.position.clone().sub(homePlanet.position).normalize();
+    // Get current world positions
+    playerSphere.getWorldPosition(_playerWorldPos);
+    homePlanet.getWorldPosition(_homePlanetWorldPos);
+    const homePlanetConfig = planets[homePlanet.name].config;
+
+    // Calculate the up vector (normal to planet surface) using WORLD positions
+    const planetUp = _playerWorldPos.clone().sub(_homePlanetWorldPos).normalize();
     
-    // --- Calculate Tangent Forward --- 
+    // --- Calculate Tangent Forward (World Space) --- 
     const cameraForward = new THREE.Vector3();
     camera.getWorldDirection(cameraForward);
     let tangentForward = cameraForward.clone().sub(
@@ -472,10 +650,11 @@ function updatePlayerMovement() {
         // Derive forward from the stable right and up vectors
         tangentForward = new THREE.Vector3().crossVectors(tangentRight, planetUp);
     }
-    tangentForward.normalize(); // We now have a stable tangentForward
+    tangentForward.normalize(); // We now have a stable tangentForward (world space)
     
+    // --- Calculate Movement Delta --- 
     // Process cardinal direction input (prioritize last checked)
-    let accelerationDirection = new THREE.Vector3(); // Initialize as zero vector
+    let accelerationDirection = new THREE.Vector3(); // Initialize as zero vector (world space)
     if (keyState['ArrowUp']) {
         accelerationDirection.copy(tangentForward); 
     } else if (keyState['ArrowDown']) {
@@ -504,52 +683,75 @@ function updatePlayerMovement() {
         playerVelocity.set(0, 0, 0);
     }
     
-    // Return if no movement
+    // Return if no movement input and velocity is zero
     if (playerVelocity.lengthSq() === 0) {
+        // When stationary, ensure player stays clamped to the surface in local coordinates
+        playerSphere.position.normalize().multiplyScalar(homePlanetConfig.radius + playerRadius);
         return; 
     }
 
-    // Get movement direction from velocity
+    // --- Apply Movement using applyAxisAngle on Local Position (Reverted Logic) ---
+    
+    // Get world movement direction from velocity
     const moveDirection = playerVelocity.clone().normalize();
     
-    // Calculate rotation axis for player MOVEMENT (Original Order)
+    // Calculate rotation axis for player MOVEMENT (World Space, Original Order)
     const positionRotationAxis = new THREE.Vector3().crossVectors(planetUp, moveDirection).normalize();
-    // Calculate rotation axis for player MESH ROTATION (Flipped Order for correct visual roll)
-    const meshRotationAxis = new THREE.Vector3().crossVectors(moveDirection, planetUp).normalize();
 
-    // Apply rotation to move the player sphere using velocity magnitude and MOVEMENT axis
+    // Calculate angle based on world velocity magnitude (arc length relative to planet center)
     const angle = playerVelocity.length();
-    playerSphere.position.sub(homePlanet.position); // Center on origin for rotation
-    playerSphere.position.applyAxisAngle(positionRotationAxis, angle); // Use position axis here
-    playerSphere.position.add(homePlanet.position); // Move back to world position
 
-    // Keep player precisely on the surface
-    const surfaceNormal = playerSphere.position.clone().sub(homePlanet.position).normalize();
-    const targetPosition = homePlanet.position.clone().add(surfaceNormal.multiplyScalar(homePlanetRadius + playerRadius));
-    playerSphere.position.copy(targetPosition);
+    // Apply rotation to the LOCAL position vector around the WORLD axis
+    playerSphere.position.applyAxisAngle(positionRotationAxis, angle); 
+    
+    // Keep player precisely on the surface (LOCAL Space clamping)
+    playerSphere.position.normalize().multiplyScalar(homePlanetConfig.radius + playerRadius);
 
-    // Update Path Trail
+    // --- Update Path Trail (Store LOCAL Points) ---
+    // Get the final clamped world position 
+    playerSphere.getWorldPosition(_playerWorldPos);
+    // Convert world position to home planet's local space
+    _tempMatrix.copy(homePlanet.matrixWorld).invert();
+    const playerLocalPosForTrail = _playerWorldPos.clone().applyMatrix4(_tempMatrix);
+    
     const lastPoint = pathPoints.length > 0 ? pathPoints[pathPoints.length - 1] : null;
-    if (!lastPoint || playerSphere.position.distanceTo(lastPoint) > MIN_PATH_DISTANCE) {
-        // Clone position to avoid reference issues
-        pathPoints.push(playerSphere.position.clone()); 
+    // Compare distance using LOCAL positions to avoid drift if player is stationary relative to planet
+    if (!lastPoint || playerLocalPosForTrail.distanceTo(lastPoint) > MIN_PATH_DISTANCE) {
+        pathPoints.push(playerLocalPosForTrail.clone()); // Add LOCAL position
         if (pathPoints.length > MAX_PATH_POINTS) {
             pathPoints.shift(); // Remove the oldest point
         }
         needsPathUpdate = true; // Signal that the line geometry needs updating
     }
 
-    // Calculate the angle needed for the mesh rotation based on distance traveled
-    const meshRotationAngle = angle * (homePlanetRadius + playerRadius) / playerRadius;
-    // Rotate the mesh using the MESH axis and calculated mesh angle (use NEGATIVE angle to flip direction)
+    // --- Rotate the player mesh itself (World Space Axis) ---
+    homePlanet.getWorldPosition(_homePlanetWorldPos); // Need planet world pos for axis calc
+    const meshRotationAxis = new THREE.Vector3().crossVectors(moveDirection, planetUp).normalize(); // World axis
+
+    // Calculate rotation angle: world distance traveled / player radius
+    const worldDistanceTraveled = playerVelocity.length();
+    let meshRotationAngle = worldDistanceTraveled / playerRadius; 
+
+    // --- Debugging Logs & Angle Amplification ---
+    meshRotationAngle *= 20; // <<< TEMPORARILY Multiply angle for testing
+    if (playerVelocity.lengthSq() > 0.00001) { // Only log if moving significantly
+        console.log(`Rolling Debug: Angle=${meshRotationAngle.toFixed(4)}, Axis=(${meshRotationAxis.x.toFixed(2)}, ${meshRotationAxis.y.toFixed(2)}, ${meshRotationAxis.z.toFixed(2)})`);
+    }
+    // --- End Debugging Logs ---
+
+    // Apply rotation around the world axis
     playerSphere.rotateOnWorldAxis(meshRotationAxis, -meshRotationAngle); 
 }
 
 function updateCamera() {
     if (!playerSphere) return;
     
-    // Calculate the current surface normal at player position
-    const surfaceNormal = playerSphere.position.clone().sub(homePlanet.position).normalize();
+    // Get player and planet WORLD positions
+    playerSphere.getWorldPosition(_playerWorldPos);
+    homePlanet.getWorldPosition(_homePlanetWorldPos);
+    
+    // Calculate the current surface normal at player position using WORLD positions
+    const surfaceNormal = _playerWorldPos.clone().sub(_homePlanetWorldPos).normalize();
     
     // Define fixed camera offset relative to player (local Z is backwards, local Y is up)
     const cameraOffset = new THREE.Vector3(0, 5, 15); 
@@ -566,19 +768,17 @@ function updateCamera() {
     const rotatedOffset = cameraOffset.clone().applyQuaternion(positionQuaternion);
     
     // Calculate desired camera position in world space
-    const desiredPosition = playerSphere.position.clone().add(rotatedOffset);
+    const desiredPosition = _playerWorldPos.clone().add(rotatedOffset);
     
     // Set camera position directly (no lerp/smoothing)
     camera.position.copy(desiredPosition);
 
     // --- Calculate Camera Orientation Robustly --- 
-    // Use Matrix4.lookAt to directly compute the target orientation matrix.
-    // This method is generally more stable than setting camera.up and calling camera.lookAt().
     const lookAtMatrix = new THREE.Matrix4();
     lookAtMatrix.lookAt(
         camera.position, // Eye position
-        playerSphere.position, // Target position to look at
-        surfaceNormal // Up vector (use the surface normal for consistent orientation)
+        _playerWorldPos, // Target WORLD position to look at
+        surfaceNormal // Up vector (use the world surface normal)
     );
 
     // Apply the rotation component of the matrix to the camera quaternion
@@ -591,8 +791,12 @@ function updateCamera() {
 
 // Rotate and check for gem collection
 function updateGems() {
-    if (!playerSphere) return;
+    if (!playerSphere || !homePlanet) return; // Ensure necessary objects exist
     
+    // Get player's current WORLD position once per frame
+    playerSphere.getWorldPosition(_playerWorldPos);
+    const homePlanetConfig = planets[homePlanet.name].config;
+
     // Update all gems
     const allGems = [
         {gems: fuelGems, type: 'fuel'},
@@ -604,50 +808,59 @@ function updateGems() {
         for (let i = gemGroup.gems.length - 1; i >= 0; i--) {
             const gem = gemGroup.gems[i];
             
-            // Rotate each gem for animation effect
+            // Rotate each gem for animation effect (uses gem's local rotation)
             gem.rotation.x += 0.01;
             gem.rotation.y += 0.02;
             
-            // Check distance to player
-            const distanceToPlayer = playerSphere.position.distanceTo(gem.position);
+            // Get gem's WORLD position
+            gem.getWorldPosition(_gemWorldPos);
             
-            // Check if gem is within magnetic radius
+            // Check distance to player using WORLD positions
+            const distanceToPlayer = _playerWorldPos.distanceTo(_gemWorldPos);
+            
+            // --- Magnetism --- 
             if (distanceToPlayer < magneticRadius && distanceToPlayer > collectionDistance) {
-                // Calculate direction to player
-                const directionToPlayer = playerSphere.position.clone().sub(gem.position).normalize();
+                // Calculate direction in WORLD space
+                const directionToPlayer = _playerWorldPos.clone().sub(_gemWorldPos).normalize();
                 
-                // Create position on planet surface toward player
-                // First find where gem is relative to planet center
-                const gemToPlanetDir = gem.position.clone().sub(homePlanet.position).normalize();
+                // Find gem's position relative to planet center (use gem's LOCAL position)
+                const gemToPlanetDirLocal = gem.position.clone().normalize();
                 
-                // Calculate how much to move toward player
+                // Calculate how much to move (in world units)
                 const moveAmount = Math.min(gemAttractionSpeed, distanceToPlayer - collectionDistance);
                 
-                // Move along surface toward player (not directly through planet)
-                // Project the direction to player onto the tangent plane of the gem's position
-                const projectedDirection = directionToPlayer.clone().sub(
-                    gemToPlanetDir.clone().multiplyScalar(directionToPlayer.dot(gemToPlanetDir))
+                // Project the WORLD direction onto the tangent plane at the gem's position
+                // Need the WORLD surface normal at the gem's location
+                homePlanet.getWorldPosition(_homePlanetWorldPos);
+                const gemSurfaceNormalWorld = _gemWorldPos.clone().sub(_homePlanetWorldPos).normalize();
+                const projectedDirectionWorld = directionToPlayer.clone().sub(
+                    gemSurfaceNormalWorld.clone().multiplyScalar(directionToPlayer.dot(gemSurfaceNormalWorld))
                 ).normalize();
                 
-                // Apply movement
-                gem.position.add(projectedDirection.multiplyScalar(moveAmount));
+                // Calculate the movement delta in WORLD space
+                const moveDeltaWorld = projectedDirectionWorld.multiplyScalar(moveAmount);
                 
-                // Ensure gem stays on planet surface
-                const newGemToPlanetDir = gem.position.clone().sub(homePlanet.position).normalize();
-                gem.position.copy(homePlanet.position.clone().add(
-                    newGemToPlanetDir.multiplyScalar(homePlanetRadius + gemSize/2)
-                ));
+                // --- Convert World Delta to Local Delta --- 
+                // Get planet's inverse world matrix
+                _tempMatrix.copy(homePlanet.matrixWorld).invert();
+                const moveDeltaLocal = moveDeltaWorld.clone().transformDirection(_tempMatrix);
                 
-                // Make gem rotate faster when being attracted to player
+                // Apply movement delta to gem's LOCAL position
+                gem.position.add(moveDeltaLocal);
+                
+                // Ensure gem stays on planet surface (using LOCAL position)
+                gem.position.normalize().multiplyScalar(homePlanetConfig.radius + gemSize/2);
+                
+                // Faster rotation (local)
                 gem.rotation.x += 0.05;
                 gem.rotation.y += 0.05;
                 gem.rotation.z += 0.05;
             }
             
-            // Check if player has collected this gem
+            // Check if player has collected this gem (using world distance calculated earlier)
             if (distanceToPlayer < collectionDistance) {
-                // Remove gem from scene and array
-                scene.remove(gem);
+                // Remove gem from its parent (homePlanet), not scene
+                homePlanet.remove(gem);
                 gemGroup.gems.splice(i, 1);
                 
                 // Update inventory
@@ -705,7 +918,7 @@ function updatePathTrail() {
         return; // Nothing to update or not enough points
     }
 
-    // Create a flat array of positions for the BufferGeometry
+    // Path points are now stored as LOCAL coordinates relative to homePlanet
     const positions = pathPoints.flatMap(p => [p.x, p.y, p.z]);
     
     // Update the geometry attribute
@@ -720,6 +933,9 @@ function updatePathTrail() {
 
     needsPathUpdate = false; // Reset the flag
 }
+
+// Need to add _tempMatrix definition near the other temp vars
+const _tempMatrix = new THREE.Matrix4();
 
 // --- Restore Correct Initialization --- 
 // console.log("Script end: Calling init() directly...");

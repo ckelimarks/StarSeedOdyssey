@@ -1,0 +1,6 @@
+# Ignore audio files
+*.mp3
+*.wav
+
+# Ignore OS-specific files
+.DS_Store 
