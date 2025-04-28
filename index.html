@@ -8,6 +8,20 @@
 </head>
 <body>
     <canvas id="game-canvas"></canvas>
-    <script type="module" src="game.js"></script>
+
+    <!-- Inventory Display (created by resources.js, starts at top: 20px, left: 20px) -->
+    <!-- <div id="inventory-display">Loading Inventory...</div> -->
+
+    <!-- Seed Bank Display -->
+    <div id="seed-bank-display" style="position: absolute; top: 70px; left: 20px; color: white; background-color: rgba(0,0,0,0.5); padding: 5px; font-family: sans-serif;">
+        Infernia Seeds: Loading...
+    </div>
+
+    <!-- Terraform Button -->
+    <button id="terraform-button" style="position: absolute; top: 110px; left: 20px; padding: 8px 15px; font-family: sans-serif; cursor: pointer;" disabled>
+        Terraform Infernia
+    </button>
+
+    <script type="module" src="src/main.js"></script>
 </body>
 </html> 
