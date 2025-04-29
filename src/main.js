@@ -1,11 +1,12 @@
 import * as THREE from 'https://esm.sh/three@0.128.0';
+import Stats from 'https://esm.sh/three@0.128.0/examples/jsm/libs/stats.module.js'; // Import Stats
 
 // Import configurations and constants
 import * as config from './config.js';
 
 // Import modules
 import { initScene } from './scene.js';
-import { initPlayer, updatePlayerMovement, updatePathTrail, keyState } from './player.js';
+import { initPlayer, updatePlayer, updatePathTrail, keyState } from './player.js';
 import { initPlanets, updateOrbits } from './planets.js';
 import { initResources, updateResources, inventory, updateInventoryDisplay, createInventoryUI, playRocketLaunchSound } from './resources.js';
 import { initRocket, updateRocket, launchRocket, isRocketActive, isRocketStationed, placeRocketOnPad, hideRocketFromPad, rocketMesh } from './rocket.js';
@@ -15,8 +16,9 @@ console.log("main.js: Script start");
 
 // Module-level variables for core components
 let scene, camera, renderer, audioListener;
-let playerSphere, homePlanet;
+let homePlanet;
 let planetsState = {}; // Populated by initPlanets
+let stats; // Declare stats globally
 
 // --- State for Pending Launch ---
 let isLaunchPending = false;
@@ -190,7 +192,7 @@ function init() {
         console.log(`Launch Pad Local Position Stored: ${_launchPadLocalPos.x.toFixed(2)}, ${_launchPadLocalPos.y.toFixed(2)}, ${_launchPadLocalPos.z.toFixed(2)}`);
 
         // --- Step 3: Initialize Player ---
-        playerSphere = initPlayer(homePlanet, audioListener);
+        window.playerState = initPlayer(homePlanet, audioListener);
 
         // --- Step 4: Initialize Resources (Previously Gems) ---
         initResources(scene, homePlanet, planetsState, audioListener);
@@ -242,6 +244,12 @@ function init() {
             if(terraformButton) terraformButton.disabled = true;
         }
 
+        // --- Step 7: Initialize Stats --- 
+        stats = new Stats();
+        stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
+        document.body.appendChild(stats.dom);
+        console.log("Main INIT: Stats initialized.");
+
         console.log("Main INIT: Finished initialization.");
         animate(); // Start the main loop
     } catch (error) {
@@ -254,14 +262,30 @@ function init() {
 const clock = new THREE.Clock();
 
 function animate() {
+    stats.begin(); // START FPS counter
+    
+    // Request next frame
     requestAnimationFrame(animate);
+
     const deltaTime = clock.getDelta();
     const now = performance.now();
 
     // --- Update Game Logic ---
     updateOrbits(planetsState, deltaTime);
-    updatePlayerMovement(camera, homePlanet, planetsState);
-    updateResources(scene, playerSphere, homePlanet, audioListener, deltaTime);
+    
+    // --- Log Player State Before Update ---
+    if (window.playerState && window.playerState.mesh) {
+        // console.log('Player Mesh Position:', window.playerState.mesh.position);
+    } else {
+        // console.log('Player state or mesh not ready yet.');
+    }
+    // ------------------------------------
+    
+    updatePlayer(deltaTime, camera, homePlanet, planetsState);
+    // Check if player mesh exists before updating resources (it's loaded async)
+    if (window.playerState?.mesh) {
+        updateResources(scene, window.playerState.mesh, homePlanet, audioListener, deltaTime);
+    }
     const landingInfo = updateRocket(deltaTime);
     updatePathTrail();
 
@@ -378,12 +402,12 @@ function animate() {
 
     // --- Update Launch Pad UI & Handle Launch Input ---
     let showLaunchPrompt = false;
-    if (isRocketStationed() && !isRocketActive() && !isLaunchPending && playerSphere && homePlanet) {
+    if (isRocketStationed() && !isRocketActive() && !isLaunchPending && window.playerState?.mesh && homePlanet) {
         // Calculate world position of the launch pad
         _launchPadWorldPos.copy(_launchPadLocalPos).applyMatrix4(homePlanet.matrixWorld);
         
         // Check player proximity
-        playerSphere.getWorldPosition(_tempPlayerPos);
+        window.playerState.mesh.getWorldPosition(_tempPlayerPos);
         const distanceToPadSq = _tempPlayerPos.distanceToSquared(_launchPadWorldPos);
         const requiredDistSq = config.LAUNCH_TRIGGER_DISTANCE * config.LAUNCH_TRIGGER_DISTANCE;
 
@@ -496,11 +520,12 @@ function animate() {
     } else if (isRocketActive()) { // Default rocket following
         updateCamera(camera, rocketMesh, homePlanet); 
     } else { // Default player following
-        updateCamera(camera, playerSphere, homePlanet);
+        updateCamera(camera, window.playerState.mesh, homePlanet);
     }
 
     // --- Render Scene ---
     if (renderer && scene && camera) {
+        stats.end(); // END FPS counter before render
         renderer.render(scene, camera);
     }
 }

@@ -363,7 +363,7 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
             // --- Generate Seeds ONLY AFTER tree model is loaded ---
             console.log('Generating seed items using loaded tree model...');
             // Moved the seed generation here!
-            generateVisualResources(config.INITIAL_SEED_GEMS, config.SEED_GEM_COLOR, 'seeds', seedGems, homePlanet, planetsState);
+    generateVisualResources(config.INITIAL_SEED_GEMS, config.SEED_GEM_COLOR, 'seeds', seedGems, homePlanet, planetsState);
             // ------------------------------------------------------
 
         },
@@ -432,7 +432,7 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
 
             // --- Generate Fuel Items ONLY AFTER model is loaded ---
             console.log('Generating fuel items using loaded crystal model...');
-            generateVisualResources(config.INITIAL_FUEL_ITEMS, config.FUEL_ITEM_COLOR, 'fuel', fuelItems, homePlanet, planetsState);
+    generateVisualResources(config.INITIAL_FUEL_ITEMS, config.FUEL_ITEM_COLOR, 'fuel', fuelItems, homePlanet, planetsState);
             // ------------------------------------------------------
 
         },
@@ -655,7 +655,7 @@ function removeCollectedItems(itemsToRemove) {
 function updateResources(scene, playerSphere, homePlanet, audioListener, deltaTime) {
     const itemsToRemove = [];
     const now = performance.now() / 1000;
-    const allItems = [...seedGems, ...fuelItems]; 
+    const allItems = [...seedGems, ...fuelItems];
 
     allItems.forEach((itemGroup, index) => {
         if (!itemGroup.gem) {
@@ -689,9 +689,9 @@ function updateResources(scene, playerSphere, homePlanet, audioListener, deltaTi
             if (distanceToPlayer < config.COLLECTION_DISTANCE) {
                 scheduleItemRemoval(itemGroup, now, itemsToRemove);
                 // Increment inventory and play sound
-                if (inventory.seeds < config.MAX_SEEDS) {
-                    inventory.seeds++;
-                    playSeedPickupSound();
+                    if (inventory.seeds < config.MAX_SEEDS) {
+                        inventory.seeds++;
+                        playSeedPickupSound();
                     updateInventoryDisplay(); 
                 }
             }

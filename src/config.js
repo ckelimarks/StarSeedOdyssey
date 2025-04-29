@@ -1,7 +1,7 @@
 // Physics Constants
-export const MAX_VELOCITY = 0.008;
-export const ACCELERATION = 0.0005;
-export const FRICTION = 0.98;
+export const MAX_VELOCITY = 30; // Resetting to a more moderate value
+export const ACCELERATION = 50; // Resetting to a more moderate value
+export const FRICTION = 0.98; // <<< MUST be less than 1 for friction
 export const POLE_THRESHOLD = 1e-8;
 
 // Path Trail Constants
@@ -10,7 +10,7 @@ export const MIN_PATH_DISTANCE = 0.5;
 
 // Object Sizes & Distances
 export const HOME_PLANET_RADIUS = 60; // NEW: Radius of the home planet
-export const PLAYER_RADIUS = 1;
+export const PLAYER_RADIUS = 0.5; // Restored from 0.1, physics boundary
 export const GEM_SIZE = 0.8;
 export const STAR_RADIUS = 80;
 
@@ -105,7 +105,7 @@ export const pickupSoundSegments = [
 
 // NEW Rolling Sound Config
 export const ROLLING_SOUND_BASE_VOLUME = 0.2;
-export const ROLLING_SOUND_FADE_DURATION = 0.5; // Duration in seconds
+export const ROLLING_SOUND_FADE_DURATION = 1.0; // Duration in seconds (Increased from 0.5)
 
 // Add other constants as needed 
 
@@ -114,7 +114,12 @@ export const GRAVITY_CONSTANT = 0.005;
 
 // Player Configuration
 export const PLAYER_SPEED = 0.15;
+export const PLAYER_MODEL_SCALE = 7.0; // Scale factor for the player model (Increased from 5.0)
+export const PLAYER_ROTATION_SPEED = Math.PI * 2; // Radians per second (e.g., 360 degrees/sec)
 
 // Planet Configuration
 export const NUM_PLANETS = 3;
 export const SYSTEM_RADIUS = 200; // Radius of the circular path planets orbit on 
+
+// --- Debugging ---
+export const DEBUG_SHOW_PLAYER_AXES = true; // Toggle visibility of player's local axes 
