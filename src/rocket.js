@@ -278,38 +278,12 @@ function updateRocket(deltaTime) {
         rocketMesh.lookAt(_surfaceTargetPos); 
     }
 
-    // --- Audio Fade Out Logic (using linear alpha) ---
-    if (rocketLaunchSound && rocketLaunchSound.isPlaying) {
-        // Calculate time since launch (based on the rocket module's launchTime)
-        const timeSinceLaunch = (performance.now() - launchTime) / 1000;
-        const fadeStartTime = 8.0; // CHANGE: Start fading after 6 seconds
-        const fadeDuration = 1.0;  // Fade out over 1 second
-        let volume = 0.6; // Base volume (adjust if initial volume is different)
-
-        if (timeSinceLaunch > fadeStartTime) {
-            const fadeProgress = Math.min(1.0, (timeSinceLaunch - fadeStartTime) / fadeDuration);
-            volume = Math.max(0, 0.6 * (1.0 - fadeProgress));
-        } else {
-             volume = 0.6; // Maintain full volume before fade starts
-        }
-        
-        rocketLaunchSound.setVolume(volume);
-        if (volume < 0.01) {
-             // console.log("Stopping faded rocket sound."); // Reduce logging noise
-             rocketLaunchSound.stop();
-        }
-    }
-
     // --- Earlier Impact Sound Trigger (using elapsedTime / linear alpha) ---
     const impactSoundTriggerTime = ROCKET_TRAVEL_DURATION - 1.0;
     if (elapsedTime >= impactSoundTriggerTime && !impactSoundPlayedThisTrip) {
         console.log(`Elapsed time ${elapsedTime.toFixed(2)}s >= trigger time ${impactSoundTriggerTime.toFixed(2)}s. Playing impact sound.`);
         playImpactSound();
         impactSoundPlayedThisTrip = true;
-        if (rocketLaunchSound && rocketLaunchSound.isPlaying) {
-             rocketLaunchSound.setVolume(0);
-             rocketLaunchSound.stop();
-        }
     }
 
     // --- Check for Arrival (using linear alpha for timing, but position uses eased) ---
@@ -355,12 +329,6 @@ function updateRocket(deltaTime) {
         isLandingSequence = true;
         landingStartTime = performance.now();
         
-        // --- Final Audio Handling ---
-        if (rocketLaunchSound && rocketLaunchSound.isPlaying) {
-            console.log("Stopping rocket launch sound explicitly on arrival.")
-            rocketLaunchSound.stop(); 
-            rocketLaunchSound.setVolume(0.6); // Reset for next time
-        }
         if (!impactSoundPlayedThisTrip) {
              console.log("Playing impact sound on immediate arrival (short trip).");
              playImpactSound();

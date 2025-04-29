@@ -107,7 +107,7 @@ export const pickupSoundSegments = [
 ];
 
 // NEW Rolling Sound Config
-export const ROLLING_SOUND_BASE_VOLUME = 0.2;
+export const ROLLING_SOUND_BASE_VOLUME = 1;
 export const ROLLING_SOUND_FADE_DURATION = 1.0; // Duration in seconds (Increased from 0.5)
 
 // Add other constants as needed 
@@ -125,7 +125,7 @@ export const NUM_PLANETS = 3;
 export const SYSTEM_RADIUS = 200; // Radius of the circular path planets orbit on 
 
 // --- Debugging ---
-export const DEBUG_SHOW_PLAYER_AXES = true; // Toggle visibility of player's local axes 
+export const DEBUG_SHOW_PLAYER_AXES = false; // Toggle visibility of player's local axes 
 
 // --- Boost Trail --- (NEW)
 export const BOOST_TRAIL_COLOR = 0x00aaff; // Light blue

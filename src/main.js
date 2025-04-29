@@ -244,6 +244,19 @@ async function init() {
         }
         console.log("Main INIT: Planets initialized.");
 
+        // --- Calculate Launch Pad Position (LOCAL coordinates) ---
+        const homePlanetRadius = homePlanet.geometry.parameters.radius;
+        const northPoleDir = new THREE.Vector3(0, 1, 0);
+        const rotationAxis = new THREE.Vector3(0, 0, 1); // Rotate around World Z
+        // Calculate small angle based on desired offset along the surface
+        const angle = config.LAUNCH_PAD_OFFSET.x / homePlanetRadius; 
+        const offsetQuat = new THREE.Quaternion().setFromAxisAngle(rotationAxis, angle);
+        const launchPadDir = northPoleDir.clone().applyQuaternion(offsetQuat);
+        // Place it slightly above the surface for visibility
+        _launchPadLocalPos.copy(launchPadDir).multiplyScalar(homePlanetRadius + 0.1); 
+        console.log(`Main INIT: Calculated _launchPadLocalPos: (${_launchPadLocalPos.x.toFixed(2)}, ${_launchPadLocalPos.y.toFixed(2)}, ${_launchPadLocalPos.z.toFixed(2)})`);
+        // -------------------------------------------------------
+
         // --- Step 4: Initialize Resources ---
         initResources(scene, homePlanet, planetsState, audioListener);
         console.log("Main INIT: Resources initialized.");
@@ -355,6 +368,15 @@ async function init() {
         document.body.appendChild(debugInstantTerraformButton);
 
         console.log("Main INIT: UI created.");
+
+        // --- Step 7.5: Place Rocket on Pad Initially ---
+        if (rocketMesh) { // Ensure rocket mesh is loaded before placing
+             placeRocketOnPad(_launchPadLocalPos);
+             console.log("Main INIT: Explicitly called placeRocketOnPad.");
+        } else {
+             console.warn("Main INIT: rocketMesh not available immediately after initRocket. Will be placed in animate loop.");
+        }
+        // ----------------------------------------------
 
         // --- Step 8: Start Animation Loop ---
         console.log("Main INIT: Starting animation loop.");
