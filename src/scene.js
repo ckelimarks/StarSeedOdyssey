@@ -1,6 +1,7 @@
 import * as THREE from 'https://esm.sh/three@0.128.0';
 import * as config from './config.js';
 import { createSphere } from './planets.js'; // Import from planets module
+import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader.js'; // Import GLTFLoader
 // import { createStarfield } from './utils.js'; // Or move createStarfield here
 
 let scene, camera, renderer, star, starfield;
@@ -71,9 +72,47 @@ export function initScene() {
     const hemiLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 0.3);
     scene.add(hemiLight);
 
-    // --- Star Object ---
-    star = createSphere(config.STAR_RADIUS, 0xffff00, starPosition, 'star'); // Uses imported createSphere
-    scene.add(star);
+    // --- Star Object (Loading GLTF Model) ---
+    // star = createSphere(config.STAR_RADIUS, 0xffff00, starPosition, 'star'); // REMOVED old sphere creation
+    // scene.add(star); // REMOVED old sphere add
+
+    const loader = new GLTFLoader();
+    loader.load(
+        'models/sun_model/scene.gltf',
+        (gltf) => {
+            console.log("Scene INIT: Sun GLTF loaded successfully.");
+            const sunModel = gltf.scene;
+            sunModel.position.copy(starPosition); // Position at origin (0,0,0)
+            
+            // --- Adjust Scale --- (Start with 1, tweak as needed)
+            const sunScale =0.1; // Adjust this value to resize the sun model
+            sunModel.scale.set(sunScale, sunScale, sunScale);
+
+            // Add the model to the scene
+            scene.add(sunModel);
+            star = sunModel; // Assign loaded model to the 'star' variable if needed elsewhere
+
+            // --- Parent the PointLight to the Sun Model ---
+            // Remove light from scene first if it was already added (it was)
+            scene.remove(starLight);
+            // Set light's local position (relative to sun model)
+            starLight.position.set(0, 0, 0); // Place light at the model's origin
+            sunModel.add(starLight); // Add light as a child of the sun model
+            console.log("Scene INIT: PointLight parented to Sun GLTF.");
+
+        },
+        undefined, // onProgress callback
+        (error) => {
+            console.error('Scene INIT: Error loading Sun GLTF model:', error);
+            // Fallback: Add the original sphere back if loading fails?
+            console.warn("Scene INIT: Falling back to sphere geometry for Sun.");
+            star = createSphere(config.STAR_RADIUS, 0xffff00, starPosition, 'sun_fallback'); 
+            scene.add(star);
+            // Add light directly to scene if sphere fallback
+            scene.add(starLight);
+        }
+    );
+    // ----------------------------------------
 
     // --- Starfield ---
     starfield = createStarfield();

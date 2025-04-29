@@ -1,5 +1,10 @@
 import * as THREE from 'https://esm.sh/three@0.128.0';
 import Stats from 'https://esm.sh/three@0.128.0/examples/jsm/libs/stats.module.js'; // Import Stats
+// --- Post-Processing Imports ---
+import { EffectComposer } from 'https://esm.sh/three@0.128.0/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'https://esm.sh/three@0.128.0/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'https://esm.sh/three@0.128.0/examples/jsm/postprocessing/UnrealBloomPass.js';
+// -----------------------------
 
 // Import configurations and constants
 import * as config from './config.js';
@@ -16,6 +21,7 @@ console.log("main.js: Script start");
 
 // Module-level variables for core components
 let scene, camera, renderer, audioListener;
+let composer; // NEW: For post-processing
 let homePlanet;
 let planetsState = {}; // Populated by initPlanets
 let stats; // Declare stats globally
@@ -203,6 +209,21 @@ async function init() {
         camera = sceneObjs.camera;
         renderer = sceneObjs.renderer;
         audioListener = sceneObjs.audioListener;
+
+        // --- Step 1.1: Initialize Post-Processing ---
+        composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            0.3,    // strength
+            0.4,    // radius
+            0.85    // threshold
+        );
+        composer.addPass(bloomPass);
+        console.log("Main INIT: Post-processing composer and passes initialized.");
+        // -------------------------------------------
 
         // --- Step 1.5: Load Audio Asynchronously and Wait ---
         console.log("Main INIT: Loading audio...");
@@ -662,10 +683,26 @@ function animate() {
     // Potentially move other UI updates like launch prompt here too
     // ... (Launch Pad UI logic) ... 
 
-    // --- Render Scene ---
-    if (renderer && scene && camera) {
+    // --- Render Scene --- Render using composer
+    if (composer && scene && camera) { // Check composer exists
         stats.end(); // END FPS counter before render
-        renderer.render(scene, camera);
+        composer.render(deltaTime); // Use composer
+    }
+}
+
+// Add composer resize to window resize handler
+function onWindowResize() {
+    if (camera && renderer) {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(width, height);
+        if (composer) { // Resize composer if it exists
+            composer.setSize(width, height);
+        }
     }
 }
 
