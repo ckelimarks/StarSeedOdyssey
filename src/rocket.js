@@ -188,14 +188,17 @@ function launchRocket(targetPlanetObj, seedCount, fuelCost) { // Added fuelCost 
     isApproachingLanding = false;
 
     // --- Sound & Orientation ---
+    // RE-APPLY: REMOVE redundant sound playback - sound is played in main.js on initiation
+    /* 
     if (rocketLaunchSound && rocketLaunchSound.buffer) {
         if (rocketLaunchSound.isPlaying) rocketLaunchSound.stop();
         rocketLaunchSound.setVolume(0.6); // Reset volume
         rocketLaunchSound.play();
-        console.log("Played rocket launch sound.");
+        console.log("Played rocket launch sound."); // THIS LINE SHOULD NOT BE REACHED
     } else {
         console.warn("Rocket launch sound not ready or buffer missing.");
     }
+    */
     targetPlanet.mesh.getWorldPosition(_targetPos);
     rocketMesh.lookAt(_targetPos);
     

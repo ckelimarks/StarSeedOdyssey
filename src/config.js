@@ -1,7 +1,7 @@
 // Physics Constants
 export const MAX_VELOCITY = 0.008;
 export const ACCELERATION = 0.0005;
-export const FRICTION = 0.92;
+export const FRICTION = 0.98;
 export const POLE_THRESHOLD = 1e-8;
 
 // Path Trail Constants
@@ -9,7 +9,7 @@ export const MAX_PATH_POINTS = 200;
 export const MIN_PATH_DISTANCE = 0.5;
 
 // Object Sizes & Distances
-export const HOME_PLANET_RADIUS = 40; // Base value, might be superseded by config
+export const HOME_PLANET_RADIUS = 60; // NEW: Radius of the home planet
 export const PLAYER_RADIUS = 1;
 export const GEM_SIZE = 0.8;
 export const STAR_RADIUS = 80;
@@ -19,18 +19,24 @@ export const INITIAL_SEEDS = 3; // Starting seed count
 export const MAX_SEEDS = 10; // Maximum seed capacity
 export const INITIAL_SEED_GEMS = 15; // Number of visual seed items to spawn initially
 export const SEED_GEM_COLOR = 0x00ff00; // Color for visual seed items
-export const COLLECTION_DISTANCE = PLAYER_RADIUS + GEM_SIZE; // Distance to collect visual items
-export const GEM_MAGNET_DISTANCE = 8; // Distance at which visual items start moving towards player
-export const GEM_MAGNET_STRENGTH = 0.1; // How strongly visual items are pulled
-export const MIN_GEM_DISTANCE = 5; // Minimum distance between spawned visual items
-export const SEED_REGEN_TIME = 20; // Seconds before a collected seed regenerates
+export const COLLECTION_DISTANCE = 2.5; // Increased from 1.8 (Used for FUEL now)
+export const TREE_COLLECTION_DISTANCE = 5.0; // NEW: Larger distance for trees
+export const GEM_MAGNET_DISTANCE = 8.0; // (Disabled for trees)
+export const GEM_MAGNET_STRENGTH = 0.05; // (Disabled for trees)
+export const MIN_GEM_DISTANCE = 2.5;
+export const SEED_REGEN_TIME = 10; // seconds
+
+// Decorative Item Config (NEW)
+export const NUM_MOSSY_LOGS = 15;
+export const MOSSY_LOG_SCALE = 1.2;
+export const MIN_DECOR_DISTANCE = 4.0; // Min distance between decorative items
 
 // Fuel Constants
 export const INITIAL_FUEL = 0; // Starting fuel units (Changed from 50)
 export const MAX_FUEL = 100; // Maximum fuel capacity
-export const INITIAL_FUEL_ITEMS = 10; // Number of visual fuel items
+export const INITIAL_FUEL_ITEMS = 20; // INCREASED from 10
 export const FUEL_ITEM_COLOR = 0xff0000; // Red color for fuel items
-export const FUEL_REGEN_TIME = 30; // Regeneration time for fuel
+export const FUEL_REGEN_TIME = 15; // seconds
 export const FUEL_CONSUMPTION_RATE = 2; // Fuel units consumed per second of thrust (UNUSED?)
 export const THRUST_FORCE = 1.0; // Acceleration provided by thrust (Increased from 0.05) (UNUSED?)
 export const FUEL_PER_PICKUP = 10; // NEW: Fuel units gained per pickup item
@@ -63,10 +69,10 @@ export const CAMERA_SMOOTH_FACTOR = 0.05; // Lower value = smoother/slower inter
 export const planetConfigs = [
     {
         name: 'AquaPrime',
-        radius: 40,
-        color: 0x0055ff,
+        radius: HOME_PLANET_RADIUS,
+        color: 0x6699ff,
         orbitalDistance: 300,
-        orbitalSpeed: 0.001,
+        orbitalSpeed: 0.0005,
         initialAngle: 0,
         isHome: true
     },
@@ -105,3 +111,10 @@ export const ROLLING_SOUND_FADE_DURATION = 0.5; // Duration in seconds
 
 // --- Physics ---
 export const GRAVITY_CONSTANT = 0.005; 
+
+// Player Configuration
+export const PLAYER_SPEED = 0.15;
+
+// Planet Configuration
+export const NUM_PLANETS = 3;
+export const SYSTEM_RADIUS = 200; // Radius of the circular path planets orbit on 

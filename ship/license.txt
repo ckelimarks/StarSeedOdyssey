@@ -1,0 +1,11 @@
+Model Information:
+* title:	Rocket Ship
+* source:	https://sketchfab.com/3d-models/rocket-ship-8ccf7388d18c4f7a881fbaa725dfe2a1
+* author:	oprerad (https://sketchfab.com/oprerad)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Rocket Ship" (https://sketchfab.com/3d-models/rocket-ship-8ccf7388d18c4f7a881fbaa725dfe2a1) by oprerad (https://sketchfab.com/oprerad) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

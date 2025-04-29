@@ -3,4 +3,8 @@
 *.wav
 
 # Ignore OS-specific files
-.DS_Store 
+.DS_Store
+
+# Ignore asset folders
+models/
+sfx/ 

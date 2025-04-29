@@ -13,8 +13,8 @@ const _axis = new THREE.Vector3(0, 1, 0); // Assuming orbits are around the worl
 const _center = new THREE.Vector3(0, 0, 0); // Assuming star/center is at origin
 
 // Moved from scene.js - Creates Sphere Meshes (Planets, Player, Star)
-export function createSphere(radius, color, position, name) {
-    const geometry = new THREE.SphereGeometry(radius, 32, 32);
+export function createSphere(radius, color, position, name, isHome = false) {
+    const geometry = new THREE.SphereGeometry(radius, 64, 64); // Increased segments for potential displacement later
     let material;
 
     if (name === 'star') {
@@ -29,10 +29,12 @@ export function createSphere(radius, color, position, name) {
     } else {
         // Base material properties for planets/player
         const materialProps = {
-            color: color,
-            roughness: 0.5,
-            metalness: 0.5
+            roughness: 1.0, // Default roughness (will be modulated by map)
+            metalness: 0.0 // Default metalness (non-metallic grass)
         };
+
+        // Define the base path for the PBR textures
+        const texturePath = 'textures/grasstextures/Grass003/2k/';
 
         // Apply specific textures
         if (name === 'player') {
@@ -43,16 +45,54 @@ export function createSphere(radius, color, position, name) {
             } catch (error) {
                 console.error("Failed to load player texture:", error);
             }
-        } else { // Apply default planet texture to all non-player, non-star spheres
+        } else { // Apply PBR grass texture to all non-player, non-star spheres
             try {
-                const planetTexture = textureLoader.load('textures/ground.jpg');
-                planetTexture.wrapS = THREE.RepeatWrapping;
-                planetTexture.wrapT = THREE.RepeatWrapping;
-                planetTexture.repeat.set(8, 4); 
-                materialProps.map = planetTexture;
-                // Don't set color to white here, allow tinting based on config.color
+                // Load PBR Textures
+                const diffuseMap = textureLoader.load(`${texturePath}Grass003_Diffuse.png`);
+                const normalMap = textureLoader.load(`${texturePath}Grass003_Normal.png`);
+                const roughnessMap = textureLoader.load(`${texturePath}Grass003_Roughness.png`);
+                const aoMap = textureLoader.load(`${texturePath}Grass003_Ambient Occlusion.png`);
+                // const heightMap = textureLoader.load(`${texturePath}Grass008_Height.png`); // Optional: For displacement/bump
+
+                // --- Configure Texture Wrapping and Repetition ---
+                const repeatValue = 8; // Repeat 8x8 times (doubled from 4x4)
+                const texturesToRepeat = [diffuseMap, normalMap, roughnessMap, aoMap];
+                texturesToRepeat.forEach(texture => {
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
+                    texture.repeat.set(repeatValue, repeatValue);
+                });
+                // -----------------------------------------------
+                
+                // Ensure sRGBEncoding for color textures
+                diffuseMap.colorSpace = THREE.SRGBColorSpace;
+
+                // Assign maps to material properties
+                materialProps.map = diffuseMap;
+                materialProps.normalMap = normalMap;
+                materialProps.roughnessMap = roughnessMap;
+                materialProps.aoMap = aoMap;
+                materialProps.aoMapIntensity = 1.0; // Adjust AO intensity if needed
+                // materialProps.displacementMap = heightMap; // Add if using displacement
+                // materialProps.displacementScale = 0.1; // Adjust displacement scale
+
+                // --- Conditional Tinting ---
+                if (isHome) {
+                    // Home planet: Use white to show original texture color
+                    materialProps.color = 0xffffff; 
+                } else {
+                    // Other planets: Use config color to tint the texture
+                    materialProps.color = color; 
+                }
+                // ---------------------------
+
+                // Add UV2 attribute for AO map
+                geometry.setAttribute('uv2', new THREE.BufferAttribute(geometry.attributes.uv.array, 2));
+
             } catch (error) {
-                console.error("Failed to load default planet texture:", error);
+                console.error(`Failed to load PBR grass textures for planet ${name}:`, error);
+                // Fallback to simple color if textures fail
+                materialProps.color = color;
             }
         }
         
@@ -79,7 +119,7 @@ export function initPlanets(scene) {
     let homePlanet = null;
 
     config.planetConfigs.forEach(pConfig => {
-        const planetMesh = createSphere(pConfig.radius, pConfig.color, new THREE.Vector3(), pConfig.name);
+        const planetMesh = createSphere(pConfig.radius, pConfig.color, new THREE.Vector3(), pConfig.name, pConfig.isHome);
         scene.add(planetMesh);
         
         // Calculate initial position based on orbital parameters

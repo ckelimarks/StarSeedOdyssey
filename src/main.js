@@ -54,6 +54,9 @@ const _planetFocusWorldPos = new THREE.Vector3();
 const _desiredCamPos = new THREE.Vector3();
 const terraformViewOffset = new THREE.Vector3(); // NEW: Store the calculated camera offset
 
+// --- Debug Counter ---
+let spacebarPressCount = 0; 
+
 // --- UI Update Functions ---
 function updateSeedBankUI(planetName, delivered, required) {
     if (seedBankElement) {
@@ -258,7 +261,7 @@ function animate() {
     // --- Update Game Logic ---
     updateOrbits(planetsState, deltaTime);
     updatePlayerMovement(camera, homePlanet, planetsState);
-    updateResources(scene, playerSphere, homePlanet, audioListener);
+    updateResources(scene, playerSphere, homePlanet, audioListener, deltaTime);
     const landingInfo = updateRocket(deltaTime);
     updatePathTrail();
 
@@ -406,26 +409,39 @@ function animate() {
                 keyState[' '] = false; // Consume key press
 
                 if (seedsToLaunch > 0) {
-                    console.log(`Launch initiated for ${seedsToLaunch} seeds. Fuel Needed: ${fuelNeeded}. Fuel Available: ${inventory.fuel.toFixed(0)}`);
-                    
-                    // Get target planet data (still hardcoded)
-                    const targetPlanetName = 'Infernia'; 
-                    const targetPlanetData = planetsState[targetPlanetName];
-                    
-                    if (targetPlanetData?.mesh && targetPlanetData?.config) {
-                         // Set pending state - Fuel check happens in launchRocket now
-                         console.log(`Target valid. Setting pending launch state.`);
-                         pendingLaunchTarget = targetPlanetData;
-                         pendingLaunchPayload = seedsToLaunch;
-                         pendingLaunchFuelCost = fuelNeeded; // Store the calculated cost
-                         isLaunchPending = true;
-                         launchPendingStartTime = performance.now();
+                    console.log(`RESOURCE CHECK: seeds=${inventory.seeds}, fuel=${inventory.fuel.toFixed(1)}, neededFuel=${fuelNeeded.toFixed(1)}`);
+                    if (inventory.fuel >= fuelNeeded) {
+                        console.log(`Launch initiated for ${seedsToLaunch} seeds. Fuel Needed: ${fuelNeeded}. Fuel Available: ${inventory.fuel.toFixed(0)}`);
+                        
+                        const targetPlanetName = 'Infernia'; 
+                        const targetPlanetData = planetsState[targetPlanetName];
+                        
+                        if (targetPlanetData?.mesh && targetPlanetData?.config) {
+                             // --- ADDED Double Check for Pending Launch --- 
+                             if (!isLaunchPending) { // Only proceed if not already pending
+                                 console.log(`Target valid. Setting pending launch state.`);
+                                 // --- Play launch sound immediately --- 
+                                 spacebarPressCount++; // Increment counter
+                                 console.log(`SOUND TRIGGER: Spacebar press #${spacebarPressCount}`); // Log count
+                                 playRocketLaunchSound(); 
+                                 // -------------------------------------
+                                 pendingLaunchTarget = targetPlanetData;
+                                 pendingLaunchPayload = seedsToLaunch;
+                                 pendingLaunchFuelCost = fuelNeeded; 
+                                 isLaunchPending = true;
+                                 launchPendingStartTime = performance.now();
+                             } else {
+                                console.log("Launch already pending, ignoring rapid spacebar press.");
+                             }
+                             // ----------------------------------------------
+                        } else {
+                            console.error(`Launch Error: Target planet '${targetPlanetName}' not found or incomplete.`);
+                        }
                     } else {
-                        console.error(`Launch Error: Target planet '${targetPlanetName}' not found or incomplete.`);
+                        console.warn("Launch attempt ignored: Insufficient fuel.");
                     }
                 } else {
                     console.log("Launch attempt ignored: No seeds available.");
-                    // Maybe play a 'failure' click sound?
                 }
             }
         }
