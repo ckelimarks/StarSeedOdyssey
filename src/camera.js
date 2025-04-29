@@ -1,5 +1,6 @@
 import * as THREE from 'https://esm.sh/three@0.128.0';
 import * as config from './config.js';
+import { isRocketApproachingLanding } from './rocket.js'; // Import the new state checker
 
 // Temporary vectors for calculations within this module
 const _targetWorldPos = new THREE.Vector3(); // Renamed from _playerWorldPos for clarity
@@ -15,6 +16,11 @@ const _rocketForward = new THREE.Vector3(); // To store rocket's forward directi
 // Reuse matrix for lookAt calculation
 const _lookAtMatrix = new THREE.Matrix4();
 
+// --- State for Fixed Landing Camera --- 
+let fixedLandingCamPos = null; // Store the position camera should move to
+let fixedLandingLookAt = null; // Store the point camera should look at
+const _tempFixedLookAt = new THREE.Vector3(); // Temp vec for lerping lookAt
+
 export function updateCamera(camera, targetObject, referenceFrameObject) {
     if (!targetObject || !referenceFrameObject || !camera) return;
 
@@ -22,51 +28,78 @@ export function updateCamera(camera, targetObject, referenceFrameObject) {
     targetObject.getWorldPosition(_targetWorldPos);
     referenceFrameObject.getWorldPosition(_referenceWorldPos);
 
-    let upVector;
+    let upVector = _worldUp.clone(); // Default to world up
     let offsetVector;
+    let finalLookAtTarget = _lookAtTarget; // Use a variable for the final lookAt target
 
-    if (targetObject.name === 'rocket') {
+    const isRocketActive = targetObject.name === 'rocket';
+    const approachingLanding = isRocketActive && isRocketApproachingLanding();
+
+    if (isRocketActive) {
         // --- Rocket Camera Logic --- 
-        upVector = _worldUp.clone(); // Use world Y up as a base reference
-        offsetVector = _offsetVectorRocket.clone(); // Use the rocket-specific offset {x:0, y:5, z:-15}
-
-        // Get rocket's world quaternion and position
-        targetObject.updateMatrixWorld(); // Ensure matrix/quaternion are up-to-date
+        targetObject.updateMatrixWorld(); 
         const rocketQuaternion = targetObject.quaternion;
         targetObject.getWorldPosition(_targetWorldPos); // Get rocket's current world position
 
-        // Calculate desired camera position:
-        // Start with the relative offset vector {x:0, y:5, z:-15}
-        // Rotate this offset by the rocket's current world orientation
-        // Add the rotated offset to the rocket's current world position
-        _desiredPosition.copy(offsetVector).applyQuaternion(rocketQuaternion).add(_targetWorldPos);
+        if (approachingLanding) {
+            // --- Fixed Landing View --- 
+            if (fixedLandingCamPos === null) {
+                // First frame of approach: Calculate and store the fixed view
+                console.log("Camera: Fixing landing view reference points.");
+                offsetVector = _offsetVectorRocket.clone();
+                // Calculate desired position based on *current* state
+                fixedLandingCamPos = _desiredPosition.copy(offsetVector).applyQuaternion(rocketQuaternion).add(_targetWorldPos);
+                // Target lookAt is the rocket's current position
+                fixedLandingLookAt = _targetWorldPos.clone(); 
+                _tempFixedLookAt.copy(fixedLandingLookAt); // Initialize lerp target
+            }
 
-        // Calculate look-at target slightly ahead of the rocket
-        // Extract forward direction from quaternion (more robust than matrix for just direction)
-        _rocketForward.set(0, 0, 1).applyQuaternion(rocketQuaternion).normalize(); // Rocket points along its local +Z
-        _lookAtTarget.copy(_targetWorldPos).add(_rocketForward.multiplyScalar(20)); // Look 20 units ahead
+            // Smoothly move camera to the fixed position
+            _desiredPosition.copy(fixedLandingCamPos);
+            // Smoothly lerp the lookAt target towards the fixed rocket landing point
+            _tempFixedLookAt.lerp(fixedLandingLookAt, config.CAMERA_SMOOTH_FACTOR * 2); // Lerp faster?
+            finalLookAtTarget = _tempFixedLookAt; 
+            // Use world up for fixed view?
+            // upVector = _worldUp.clone(); 
+            // Or derive from camera position and target?
+            upVector.subVectors(camera.position, finalLookAtTarget).cross(_worldUp).normalize(); // Right vector
+            upVector.cross(upVector).normalize(); // Recompute up vector
+            if (upVector.length() < 0.1) upVector.copy(_worldUp); // Fallback
+
+        } else {
+             // --- Normal Rocket Following View --- 
+             fixedLandingCamPos = null; // Reset fixed view state
+             fixedLandingLookAt = null;
+
+             offsetVector = _offsetVectorRocket.clone(); 
+             _desiredPosition.copy(offsetVector).applyQuaternion(rocketQuaternion).add(_targetWorldPos);
+             // Calculate look-at target slightly ahead
+             _rocketForward.set(0, 0, 1).applyQuaternion(rocketQuaternion).normalize(); 
+             _lookAtTarget.copy(_targetWorldPos).add(_rocketForward.multiplyScalar(20)); 
+             finalLookAtTarget = _lookAtTarget;
+             // Derive up vector from rocket orientation? Maybe not necessary if looking ahead.
+             upVector = _worldUp.clone(); // Simpler for now
+        }
 
     } else {
-        // --- Player Camera Logic (Existing) --- 
+        // --- Player Camera Logic --- 
+        fixedLandingCamPos = null; // Reset fixed view state when not following rocket
+        fixedLandingLookAt = null;
+
         upVector = _targetWorldPos.clone().sub(_referenceWorldPos).normalize(); // Player's surface normal
         offsetVector = _offsetVectorPlayer.clone();
-
-        // Calculate desired camera position relative to player and planet surface
         _positionQuaternion.setFromUnitVectors(_worldUp, upVector);
         const rotatedOffset = offsetVector.applyQuaternion(_positionQuaternion);
         _desiredPosition.copy(_targetWorldPos).add(rotatedOffset);
-
-        // Look directly at the player
         _lookAtTarget.copy(_targetWorldPos);
+        finalLookAtTarget = _lookAtTarget;
     }
 
     // --- Apply Smooth Camera Movement --- 
-    // Lerp camera position towards the desired position
     camera.position.lerp(_desiredPosition, config.CAMERA_SMOOTH_FACTOR);
 
     // --- Calculate Smooth Camera Orientation --- 
-    // Use lookAt matrix method for robust orientation, then slerp quaternion
-    _lookAtMatrix.lookAt(camera.position, _lookAtTarget, upVector);
-    _positionQuaternion.setFromRotationMatrix(_lookAtMatrix); // Temporary store target rotation
-    camera.quaternion.slerp(_positionQuaternion, config.CAMERA_SMOOTH_FACTOR); // Slerp towards target rotation
+    _lookAtMatrix.lookAt(camera.position, finalLookAtTarget, upVector);
+    _positionQuaternion.setFromRotationMatrix(_lookAtMatrix); 
+    camera.quaternion.slerp(_positionQuaternion, config.CAMERA_SMOOTH_FACTOR); 
 } 

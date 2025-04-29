@@ -1,6 +1,7 @@
 import * as THREE from 'https://esm.sh/three@0.128.0';
 import * as config from './config.js';
 import { createSphere } from './planets.js';
+import { startRollingSound, stopRollingSound, setRollingSoundLoop, setRollingSoundVolume } from './resources.js'; // Import sound functions
 
 // Module-level variables for player state
 let playerSphere = null;
@@ -26,6 +27,11 @@ const _vector3 = new THREE.Vector3(); // General purpose temp vector
 
 // NEW: Store Audio Listener reference
 let audioListenerRef = null;
+
+// NEW: Sound state
+let isRollingSoundPlaying = false;
+let isRollingSoundFadingOut = false;
+let rollingFadeStartTime = 0;
 
 // Initialize Player
 function initPlayer(homePlanet, audioListener) {
@@ -149,10 +155,11 @@ function updatePlayerMovement(camera, homePlanet, planetsState) {
     
     // --- Calculate Movement Delta --- 
     let accelerationDirection = new THREE.Vector3();
-    if (keyState['ArrowUp']) accelerationDirection.copy(tangentForward); 
-    else if (keyState['ArrowDown']) accelerationDirection.copy(tangentForward).negate(); 
-    else if (keyState['ArrowLeft']) accelerationDirection.copy(tangentRight).negate(); 
-    else if (keyState['ArrowRight']) accelerationDirection.copy(tangentRight); 
+    let isMovingByKey = false; // Flag to check if movement key is pressed
+    if (keyState['ArrowUp']) { accelerationDirection.copy(tangentForward); isMovingByKey = true; } 
+    else if (keyState['ArrowDown']) { accelerationDirection.copy(tangentForward).negate(); isMovingByKey = true; } 
+    else if (keyState['ArrowLeft']) { accelerationDirection.copy(tangentRight).negate(); isMovingByKey = true; } 
+    else if (keyState['ArrowRight']) { accelerationDirection.copy(tangentRight); isMovingByKey = true; } 
 
     if (accelerationDirection.lengthSq() > 0) {
         playerVelocity.add(accelerationDirection.multiplyScalar(config.ACCELERATION));
@@ -165,6 +172,48 @@ function updatePlayerMovement(camera, homePlanet, planetsState) {
     
     if (playerVelocity.length() < 0.0005) {
         playerVelocity.set(0, 0, 0);
+    }
+
+    // --- Handle Rolling Sound & Fade Out ---
+    const now = performance.now();
+    const isActuallyMoving = playerVelocity.lengthSq() > 0.000001; 
+
+    // 1. Handle Fade Out Update (if applicable)
+    if (isRollingSoundFadingOut) {
+        const elapsedFadeTime = (now - rollingFadeStartTime) / 1000;
+        if (elapsedFadeTime >= config.ROLLING_SOUND_FADE_DURATION) {
+            // Fade complete
+            console.log("Rolling sound fade complete, stopping sound.");
+            stopRollingSound(); 
+            isRollingSoundPlaying = false;
+            isRollingSoundFadingOut = false;
+        } else {
+            // Still fading
+            const fadeProgress = elapsedFadeTime / config.ROLLING_SOUND_FADE_DURATION;
+            const currentVolume = config.ROLLING_SOUND_BASE_VOLUME * (1.0 - fadeProgress);
+            setRollingSoundVolume(currentVolume);
+            // Keep isRollingSoundPlaying = true during fade
+        }
+    }
+    // 2. Handle Start/Stop based on movement (only if not currently fading out)
+    else { 
+        if (isActuallyMoving) {
+            // Should be playing
+            if (!isRollingSoundPlaying) {
+                console.log(`Player is moving (v^2=${playerVelocity.lengthSq().toFixed(8)}), starting rolling sound.`);
+                startRollingSound(); // This sets loop=true and base volume
+                isRollingSoundPlaying = true;
+            }
+        } else {
+            // Should NOT be playing (or should start fading)
+            if (isRollingSoundPlaying) {
+                console.log("Player stopped, initiating rolling sound fade out.");
+                setRollingSoundLoop(false); // Stop looping
+                isRollingSoundFadingOut = true; // Start the fade
+                rollingFadeStartTime = now;
+                // isRollingSoundPlaying remains true until fade completes
+            }
+        }
     }
     
     // --- Update Position & Trail --- 

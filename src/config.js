@@ -26,17 +26,19 @@ export const MIN_GEM_DISTANCE = 5; // Minimum distance between spawned visual it
 export const SEED_REGEN_TIME = 20; // Seconds before a collected seed regenerates
 
 // Fuel Constants
-export const INITIAL_FUEL = 50; // Starting fuel units
+export const INITIAL_FUEL = 0; // Starting fuel units (Changed from 50)
 export const MAX_FUEL = 100; // Maximum fuel capacity
 export const INITIAL_FUEL_ITEMS = 10; // Number of visual fuel items
 export const FUEL_ITEM_COLOR = 0xff0000; // Red color for fuel items
 export const FUEL_REGEN_TIME = 30; // Regeneration time for fuel
-export const FUEL_CONSUMPTION_RATE = 2; // Fuel units consumed per second of thrust
-export const THRUST_FORCE = 1.0; // Acceleration provided by thrust (Increased from 0.05)
-export const FUEL_COST_PER_SEED = 2; // Fuel units required for each seed launched
+export const FUEL_CONSUMPTION_RATE = 2; // Fuel units consumed per second of thrust (UNUSED?)
+export const THRUST_FORCE = 1.0; // Acceleration provided by thrust (Increased from 0.05) (UNUSED?)
+export const FUEL_PER_PICKUP = 10; // NEW: Fuel units gained per pickup item
+export const FUEL_COST_PER_SEED = 5; // NEW/Ensure: Fuel units required for each seed launched
 
 // Terraforming Constants
 export const SEEDS_REQUIRED_TERRAFORM = 10; // Seeds needed to terraform a planet
+export const TERRAFORM_DURATION = 7.0; // SHORTER: Duration in seconds for color change (was 10.0)
 
 // Rocket Constants
 export const ROCKET_MAX_PAYLOAD = 5; // Max seeds per rocket launch
@@ -44,6 +46,8 @@ export const ROCKET_RADIUS = 0.5;
 export const ROCKET_HEIGHT = 2;
 export const ROCKET_COLOR = 0xcccccc;
 export const ROCKET_TRAVEL_DURATION = 10.0; // Seconds for rocket to reach target (lerp)
+export const ROCKET_LANDING_LINGER = 2.0; // Seconds to linger camera after landing
+export const ROCKET_LAUNCH_DELAY = 2.0; // Seconds between launch trigger and actual liftoff
 export const LAUNCH_PAD_OFFSET = { x: 1, y: 0, z: 0 }; // Local offset from North Pole (Reduced x offset)
 export const LAUNCH_TRIGGER_DISTANCE = 5.0; // How close player must be to launch rocket
 
@@ -92,6 +96,10 @@ export const pickupSoundSegments = [
     { offset: 3, duration: 2 }, // 3-5 seconds
     { offset: 6, duration: 2 }  // 6-8 seconds
 ];
+
+// NEW Rolling Sound Config
+export const ROLLING_SOUND_BASE_VOLUME = 0.2;
+export const ROLLING_SOUND_FADE_DURATION = 0.5; // Duration in seconds
 
 // Add other constants as needed 
 

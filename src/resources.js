@@ -10,18 +10,22 @@ let audioListenerRef = null;
 
 // Module-level variables for resources and inventory
 let seedGems = [];
-let fuelItems = []; // Add array for fuel items
+let fuelItems = [];
 export let inventory = {
     seeds: config.INITIAL_SEEDS,
     fuel: config.INITIAL_FUEL
-    // Removed maxSeeds, maxFuel - add back if caps needed
-    // Removed isLaunchReady - check happens at launch time
 };
 
 // --- Audio Variables ---
 let pickupSound = null;
-let soundSegments = config.pickupSoundSegments; // Restore: Use segments from config
-let lastSegmentIndex = -1; // Restore: Track last played segment
+let soundSegments = config.pickupSoundSegments; // For seeds
+let lastSegmentIndex = -1;
+let rocketLaunchSound = null;
+let impactSound = null;
+let rollingSound = null;
+let ambientSound = null;
+let fuelPickupSound1 = null; // Sound for fuel pickup
+let seedAccentSound = null; // NEW: Additional sound for seed pickup
 
 // Array to track collected seeds for regeneration
 const collectedSeedsQueue = [];
@@ -94,20 +98,89 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
     generateVisualResources(config.INITIAL_FUEL_ITEMS, config.FUEL_ITEM_COLOR, 'fuel', fuelItems, homePlanet, planetsState);
 
     // Setup audio
-    const listener = audioListenerRef; // Ensure listener is valid
+    const listener = audioListenerRef;
     if (listener) {
-        pickupSound = new THREE.Audio(listener);
+        pickupSound = new THREE.Audio(listener); // Seed pickup (segmented)
+        rocketLaunchSound = new THREE.Audio(listener);
+        impactSound = new THREE.Audio(listener);
+        rollingSound = new THREE.Audio(listener);
+        ambientSound = new THREE.Audio(listener);
+        fuelPickupSound1 = new THREE.Audio(listener); // Fuel sound
+        seedAccentSound = new THREE.Audio(listener); // NEW: Seed accent sound init
         const audioLoader = new THREE.AudioLoader();
+
+        // Load SEED pickup sound (segmented)
         audioLoader.load('sfx/resource-pickup-sound.mp3', function(buffer) {
             pickupSound.setBuffer(buffer);
-            // pickupSound.setLoop(false); // Ensure it doesn't loop
             pickupSound.setVolume(0.4);
-            console.log("Pickup sound loaded.");
+            console.log("Seed pickup sound loaded.");
         }, undefined, function(err) {
-            console.error('Error loading pickup sound:', err);
+            console.error('Error loading seed pickup sound:', err);
         });
+
+        // Load FUEL pickup sound
+        audioLoader.load('sfx/collect-sound.wav', function(buffer) {
+            fuelPickupSound1.setBuffer(buffer);
+            fuelPickupSound1.setLoop(false);
+            fuelPickupSound1.setVolume(0.5);
+            console.log("Fuel pickup sound loaded.");
+        }, undefined, function(err) {
+            console.error('Error loading fuel pickup sound:', err);
+        });
+
+        // NEW: Load SEED accent sound
+        audioLoader.load('sfx/collect-sound2.mp3', function(buffer) {
+            seedAccentSound.setBuffer(buffer);
+            seedAccentSound.setLoop(false);
+            seedAccentSound.setVolume(0.35); // Adjust volume as needed
+            console.log("Seed accent sound loaded.");
+        }, undefined, function(err) {
+            console.error('Error loading seed accent sound:', err);
+        });
+
+        // Load rocket launch sound
+        audioLoader.load('sfx/rocketsound.mp3', function(buffer) {
+            rocketLaunchSound.setBuffer(buffer);
+            rocketLaunchSound.setLoop(false); 
+            rocketLaunchSound.setVolume(0.6);
+            console.log("Rocket launch sound loaded.");
+        }, undefined, function(err) {
+            console.error('Error loading rocket launch sound:', err);
+        });
+
+        // Load impact sound
+        audioLoader.load('sfx/impact-sound.mp3', function(buffer) {
+            impactSound.setBuffer(buffer);
+            impactSound.setLoop(false); 
+            impactSound.setVolume(0.7); 
+            console.log("Impact sound loaded.");
+        }, undefined, function(err) {
+            console.error('Error loading impact sound:', err);
+        });
+
+        // Load rolling sound
+        audioLoader.load('sfx/rolling-sound.mp3', function(buffer) {
+            rollingSound.setBuffer(buffer);
+            rollingSound.setLoop(true); 
+            rollingSound.setVolume(config.ROLLING_SOUND_BASE_VOLUME);
+            console.log("Rolling sound loaded.");
+        }, undefined, function(err) {
+            console.error('Error loading rolling sound:', err);
+        });
+
+        // Load ambient sound
+        audioLoader.load('sfx/wind-soft-crickets.wav', function(buffer) {
+            ambientSound.setBuffer(buffer);
+            ambientSound.setLoop(true);
+            ambientSound.setVolume(0.3);
+            ambientSound.play(); 
+            console.log("Ambient sound loaded and playing.");
+        }, undefined, function(err) {
+            console.error('Error loading ambient sound:', err);
+        });
+
     } else {
-        console.warn("Audio Listener not available, pickup sound disabled.");
+        console.warn("Audio Listener not available, sounds disabled.");
     }
 
     console.log("Resources INIT: Finished.");
@@ -151,68 +224,35 @@ function createInventoryUI() {
 // Update Inventory Display including Launch Prompt & Fuel
 function updateInventoryDisplay() {
     const seedsElement = document.getElementById('seeds-display');
-    const fuelElement = document.getElementById('fuel-display'); // Get fuel element
+    const fuelElement = document.getElementById('fuel-display');
     const launchPromptElement = document.getElementById('launch-prompt');
 
     if (seedsElement) {
         seedsElement.textContent = `Seeds: ${inventory.seeds} / ${config.MAX_SEEDS}`;
     }
-    // Update Fuel display
     if (fuelElement) {
-        fuelElement.textContent = `Fuel: ${inventory.fuel.toFixed(0)} / ${config.MAX_FUEL}`;
+        // Format fuel nicely, maybe only show integer part
+        fuelElement.textContent = `Fuel: ${Math.floor(inventory.fuel)} / ${config.MAX_FUEL}`;
     }
 
-    // Update launch readiness state
-    inventory.isLaunchReady = inventory.seeds >= config.ROCKET_FUEL_COST;
-
+    // Launch Prompt Update - This needs more context from main.js about player proximity and target
+    // We will update this logic later in main.js step
     if (launchPromptElement) {
-        if (inventory.isLaunchReady) {
-            launchPromptElement.textContent = `Ready to Launch [Spacebar] (Cost: ${config.ROCKET_FUEL_COST} Seeds)`;
-            launchPromptElement.style.display = 'block'; // Show prompt
-        } else {
-            launchPromptElement.style.display = 'none'; // Hide prompt
-        }
-    } else {
-        console.error("UI element #launch-prompt not found.");
+         // Placeholder - logic will move to main.js
+        launchPromptElement.style.display = 'none'; 
+        // Example of what it might show (needs seed/fuel cost calculated in main):
+        // launchPromptElement.textContent = `Launch ${numSeeds} seeds (Cost: ${fuelCost} Fuel)? [Space]`;
     }
 }
 
-// Function to check if launch is affordable
-function canAffordLaunch() {
-    return inventory.seeds >= config.ROCKET_FUEL_COST;
-}
+// Function to consume fuel during flight (NOW OBSOLETE - fuel cost is upfront)
+// function consumeRocketFuel(deltaTime) { ... }
 
-// Function to spend SEEDS for launch
-function spendLaunchFuel() { // Maybe rename to spendLaunchCost?
-    if (canAffordLaunch()) {
-        inventory.seeds -= config.ROCKET_FUEL_COST;
-        updateInventoryDisplay(); // Update UI after spending seeds
-        return true;
-    } else {
-        console.warn("Attempted to spend launch seeds, but not enough.");
-        return false;
-    }
-}
-
-// Function to consume fuel during flight (called by rocket.js)
-// Returns true if fuel was consumed, false otherwise
-function consumeRocketFuel(deltaTime) {
-    if (inventory.fuel > 0) {
-        const fuelConsumed = config.FUEL_CONSUMPTION_RATE * deltaTime;
-        inventory.fuel = Math.max(0, inventory.fuel - fuelConsumed); // Consume and clamp at 0
-        updateInventoryDisplay(); // Update UI
-        return true;
-    }
-    return false;
-}
-
-// Update Resources (renamed from updateGems)
+// Update Resources
 function updateResources(scene, playerSphere, homePlanet, audioListener) {
-    const itemsToRemove = []; // Generic name
-    const now = performance.now() / 1000; // Current time in seconds
-
-    // --- Update Visual Items (Seeds and Fuel) ---
-    const allItems = [...seedGems, ...fuelItems]; // Combine for iteration
+    const itemsToRemove = [];
+    const now = performance.now() / 1000;
+    const allItems = [...seedGems, ...fuelItems];
 
     allItems.forEach((itemGroup, index) => {
         if (!itemGroup.gem) {
@@ -268,14 +308,20 @@ function updateResources(scene, playerSphere, homePlanet, audioListener) {
                     console.warn("Could not find collected item in original array?", itemGroup);
                 }
 
-                // Increment correct inventory
+                // Increment correct inventory and PLAY SOUND
                 if (itemGroup.type === 'seeds') {
-                    if (inventory.seeds < config.MAX_SEEDS) inventory.seeds++;
+                    if (inventory.seeds < config.MAX_SEEDS) {
+                        inventory.seeds++;
+                        playSeedPickupSound();
+                    }
                 } else if (itemGroup.type === 'fuel') {
-                    if (inventory.fuel < config.MAX_FUEL) inventory.fuel++;
+                    if (inventory.fuel < config.MAX_FUEL) {
+                        // Add FUEL_PER_PICKUP, clamping at MAX_FUEL
+                        inventory.fuel = Math.min(config.MAX_FUEL, inventory.fuel + config.FUEL_PER_PICKUP);
+                        playFuelPickupSound();
+                    }
                 }
-                updateInventoryDisplay();
-                playPickupSound(); // Call sound function on collection
+                updateInventoryDisplay(); // Update UI after change
             }
         }
     });
@@ -345,59 +391,155 @@ function updateResources(scene, playerSphere, homePlanet, audioListener) {
 }
 
 // --- Audio Playback ---
-function playPickupSound() {
-    // Play a random segment if possible
+
+// UPDATED: Play segmented sound AND accent sound for seeds
+function playSeedPickupSound() {
+    // 1. Play segmented sound
     if (pickupSound && pickupSound.buffer && soundSegments && soundSegments.length > 0) {
         let nextIndex;
         if (soundSegments.length === 1) {
-            nextIndex = 0; // Only one segment
+            nextIndex = 0;
         } else {
             do {
                 nextIndex = Math.floor(Math.random() * soundSegments.length);
-            } while (nextIndex === lastSegmentIndex); // Avoid repeating the same segment immediately
+            } while (nextIndex === lastSegmentIndex);
         }
-        lastSegmentIndex = nextIndex; // Update last played index
+        lastSegmentIndex = nextIndex;
 
         const segment = soundSegments[nextIndex];
-        
-        // Check if the sound is already playing, stop it to play the new segment
+
         if (pickupSound.isPlaying) {
-            pickupSound.stop(); 
+            pickupSound.stop();
         }
 
-        // Set the offset and play
         pickupSound.offset = segment.offset;
         pickupSound.duration = segment.duration;
         pickupSound.play();
     }
-}
 
-// Play Sound function (kept for potential future use)
-// function playSound(listener, buffer) {
-
-// --- Resource Management Functions ---
-export function hasResources(seedCost, fuelCost) {
-    return inventory.seeds >= seedCost && inventory.fuel >= fuelCost;
-}
-
-export function spendResources(seedCost, fuelCost) {
-    if (hasResources(seedCost, fuelCost)) {
-        inventory.seeds -= seedCost;
-        inventory.fuel -= fuelCost;
-        console.log(`Spent ${seedCost} seeds, ${fuelCost} fuel. Remaining: ${inventory.seeds} seeds, ${inventory.fuel} fuel.`);
-        updateInventoryDisplay(); // Update UI after spending
-        return true;
-    } else {
-        console.warn(`Attempted to spend ${seedCost} seeds, ${fuelCost} fuel, but insufficient resources.`);
-        return false;
+    // 2. Play accent sound simultaneously
+    if (seedAccentSound && seedAccentSound.buffer) {
+        if (seedAccentSound.isPlaying) {
+            seedAccentSound.stop(); // Restart if already playing from rapid collection
+        }
+        seedAccentSound.play();
     }
 }
+
+// Play fuel pickup sound (unchanged from last step)
+function playFuelPickupSound() {
+    const soundToPlay = fuelPickupSound1;
+
+    if (soundToPlay && soundToPlay.buffer && !soundToPlay.isPlaying) {
+        soundToPlay.play();
+    } else if (soundToPlay && soundToPlay.buffer && soundToPlay.isPlaying) {
+        soundToPlay.stop();
+        soundToPlay.play();
+    }
+}
+
+// Function to play the rocket launch sound
+export function playRocketLaunchSound() {
+    if (rocketLaunchSound && rocketLaunchSound.buffer && !rocketLaunchSound.isPlaying) {
+        rocketLaunchSound.setVolume(0.6); // Reset volume before playing
+        rocketLaunchSound.play();
+        console.log("Playing rocket launch sound.");
+    } else if (rocketLaunchSound && rocketLaunchSound.isPlaying) {
+        console.log("Rocket launch sound already playing (or called again)."); // Avoid console spam if called rapidly
+        // Optional: Could restart it if desired: rocketLaunchSound.stop().play();
+    } else {
+        console.warn("Rocket launch sound not loaded or buffer not ready.");
+    }
+}
+
+// Function to play the impact sound
+export function playImpactSound() {
+    console.log("Attempting to play impact sound...");
+    if (!impactSound) {
+        console.warn("Impact sound object is null!");
+        return;
+    }
+    if (!impactSound.buffer) {
+        console.warn("Impact sound buffer not loaded yet.");
+        return;
+    }
+    if (impactSound.isPlaying) {
+        // Don't restart if already playing
+        console.log("Impact sound already playing, stopping and restarting.");
+        impactSound.stop(); // Stop before playing again to ensure it plays
+    } 
+    
+    console.log("Executing impactSound.play()");
+    impactSound.play();
+    console.log("Executed impactSound.play()"); // Confirm play was called
+
+    // Check state shortly after calling play
+    setTimeout(() => {
+        if(impactSound.isPlaying) {
+            console.log("Impact sound confirmed playing shortly after call.");
+        } else {
+             console.warn("Impact sound NOT playing shortly after call. Context issue?");
+        }
+    }, 50); // Check after 50ms
+}
+
+// Function to start the rolling sound
+export function startRollingSound() {
+    console.log("Attempting startRollingSound...");
+    if (!rollingSound) { console.warn("startRollingSound: rollingSound object is null!"); return; }
+    if (!rollingSound.buffer) { console.warn("startRollingSound: rollingSound buffer is null!"); return; }
+    if (rollingSound.isPlaying) { console.log("startRollingSound: Already playing."); return; }
+    if (rollingSound.context.state !== 'running') { console.warn(`startRollingSound: AudioContext not running! State: ${rollingSound.context.state}`); return; }
+    
+    // Ensure loop is true and volume is reset when starting
+    rollingSound.setLoop(true);
+    rollingSound.setVolume(config.ROLLING_SOUND_BASE_VOLUME);
+
+    console.log("Executing rollingSound.play()"); 
+    rollingSound.play();
+    console.log("Executed rollingSound.play()"); 
+}
+
+// Function to set the loop property
+export function setRollingSoundLoop(shouldLoop) {
+    if (rollingSound) {
+        rollingSound.setLoop(shouldLoop);
+    }
+}
+
+// Function to set the volume
+export function setRollingSoundVolume(volume) {
+    if (rollingSound) {
+        // Clamp volume between 0 and 1
+        const clampedVolume = Math.max(0, Math.min(1, volume));
+        rollingSound.setVolume(clampedVolume);
+    }
+}
+
+// Function to stop the rolling sound (hard stop)
+export function stopRollingSound() {
+    console.log("Attempting stopRollingSound...");
+    if (!rollingSound) { console.warn("stopRollingSound: rollingSound object is null!"); return; }
+    
+    if (rollingSound.isPlaying) {
+        console.log("Executing rollingSound.stop()"); 
+        rollingSound.stop(); 
+        console.log("Executed rollingSound.stop()"); 
+    } else {
+        console.log("stopRollingSound: Not currently playing.");
+    }
+}
+
+// --- Resource Management Functions ---
+// export function hasResources(seedCost, fuelCost) { ... } // Check happens in main.js
+// export function spendResources(seedCost, fuelCost) { ... } // Deduction happens in main.js/rocket.js
 
 // Exports
 export {
     initResources,
     updateResources,
     createInventoryUI,
-    // hasResources, // Removed - Exported directly above with 'export function'
-    // spendResources // Removed - Exported directly above with 'export function'
+    updateInventoryDisplay, // Export for use in main.js?
+    rocketLaunchSound,
+    // ... other sound exports ...
 }; 

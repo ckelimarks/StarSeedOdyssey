@@ -75,33 +75,32 @@ export function createSphere(radius, color, position, name) {
 // Initialize planets based on config
 export function initPlanets(scene) {
     console.log("Initializing planets...");
-    config.planetConfigs.forEach(configItem => {
-        const geometry = new THREE.SphereGeometry(configItem.radius, 32, 32);
-        const material = new THREE.MeshStandardMaterial({ color: configItem.color });
-        const planetMesh = new THREE.Mesh(geometry, material);
-        planetMesh.name = configItem.name; // Assign name to mesh
+    const planetsState = {};
+    let homePlanet = null;
 
-        // Calculate initial position based on angle and distance
-        const initialX = Math.cos(configItem.initialAngle) * configItem.orbitalDistance;
-        const initialZ = Math.sin(configItem.initialAngle) * configItem.orbitalDistance;
-        planetMesh.position.set(initialX, 0, initialZ);
-
+    config.planetConfigs.forEach(pConfig => {
+        const planetMesh = createSphere(pConfig.radius, pConfig.color, new THREE.Vector3(), pConfig.name);
         scene.add(planetMesh);
-
-        // Store planet data including mesh, config, angle, and terraforming state
-        planets[configItem.name] = {
+        
+        // Calculate initial position based on orbital parameters
+        const initialX = pConfig.orbitalDistance * Math.cos(pConfig.initialAngle);
+        const initialZ = pConfig.orbitalDistance * Math.sin(pConfig.initialAngle);
+        planetMesh.position.set(initialX, 0, initialZ);
+        
+        planetsState[pConfig.name] = {
             mesh: planetMesh,
-            config: configItem,
-            currentAngle: configItem.initialAngle,
+            config: pConfig,
+            originalColor: new THREE.Color(pConfig.color), // Store original color
+            currentAngle: pConfig.initialAngle,
             seedsDelivered: 0, // Initialize seed count
-            seedsRequired: config.SEEDS_REQUIRED_TERRAFORM // Store required amount
+            seedsRequired: config.SEEDS_REQUIRED_TERRAFORM // Store requirement
         };
 
-        console.log(`  Planet ${configItem.name} initialized at angle ${configItem.initialAngle.toFixed(2)}.`);
+        console.log(`  Planet ${pConfig.name} initialized at angle ${pConfig.initialAngle.toFixed(2)}.`);
 
-        if (configItem.isHome) {
+        if (pConfig.isHome) {
             homePlanet = planetMesh;
-            console.log(`  -> Identified ${configItem.name} as the home planet.`);
+            console.log(`  -> Identified ${pConfig.name} as the home planet.`);
         }
     });
 
@@ -110,7 +109,7 @@ export function initPlanets(scene) {
         // Fallback: use the first planet in the config as home if none is explicitly marked
         if (config.planetConfigs.length > 0) {
             const firstPlanetName = config.planetConfigs[0].name;
-            homePlanet = planets[firstPlanetName]?.mesh;
+            homePlanet = planetsState[firstPlanetName]?.mesh;
             if(homePlanet) console.log(`  -> Defaulted home planet to ${firstPlanetName}.`);
         }
     }
@@ -121,17 +120,28 @@ export function initPlanets(scene) {
     }
 
     console.log("Planet initialization complete.");
-    return { planets, homePlanet }; // Return the map and home planet mesh ref
+    return { planets: planetsState, homePlanet }; // Return the map and home planet mesh ref
 }
 
 // Update Planet Orbits
-export function updateOrbits() {
-    for (const planetName in planets) {
-        const planetData = planets[planetName];
+export function updateOrbits(planetsState, deltaTime) {
+    // Iterate over the passed-in planetsState map
+    for (const planetName in planetsState) { 
+        const planetData = planetsState[planetName];
+        // Ensure planetData and necessary properties exist before proceeding
+        if (!planetData || !planetData.config || !planetData.mesh) {
+            console.warn(`Skipping orbit update for ${planetName}: Invalid data.`);
+            continue; // Skip to the next planet
+        }
+
         const config = planetData.config;
         const mesh = planetData.mesh;
         
-        planetData.currentAngle += config.orbitalSpeed; 
+        // Use deltaTime for speed calculation if desired in the future,
+        // but for now, stick to the constant orbitalSpeed from config.
+        planetData.currentAngle += config.orbitalSpeed; // Using constant speed
+        // Ensure angle stays within 0 to 2*PI range
+        if (planetData.currentAngle < 0) planetData.currentAngle += 2 * Math.PI;
         planetData.currentAngle %= (2 * Math.PI);
         
         const newX = config.orbitalDistance * Math.cos(planetData.currentAngle);
