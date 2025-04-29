@@ -8,4 +8,48 @@ body {
     width: 100vw;
     height: 100vh;
     display: block;
-} 
+}
+
+/* --- NEW: Boost Meter Styles --- */
+#boost-meter-container {
+    position: absolute;
+    bottom: 70px; /* Adjust position as needed */
+    left: 10px;
+    color: white;
+    background-color: rgba(0, 0, 0, 0.5);
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 14px;
+    display: flex; /* Use flexbox for alignment */
+    align-items: center; /* Vertically center items */
+    font-family: Arial, sans-serif;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    user-select: none;
+}
+
+#boost-meter-bar {
+    width: 100px; /* Adjust width */
+    height: 10px; /* Adjust height */
+    background-color: #444;
+    border: 1px solid #666;
+    border-radius: 3px;
+    margin: 0 8px; /* Add some spacing */
+    overflow: hidden; /* Keep fill inside */
+    position: relative; /* For absolute positioning of fill */
+}
+
+#boost-meter-fill {
+    width: 100%; /* Start full */
+    height: 100%;
+    background-color: #00aaff; /* Boost color */
+    position: absolute;
+    top: 0;
+    left: 0;
+    transition: width 0.1s linear; /* Smooth transition for fill */
+}
+
+#boost-status {
+    min-width: 60px; /* Prevent text jump */
+    text-align: right;
+}
+/* --- END Boost Meter Styles --- */ 

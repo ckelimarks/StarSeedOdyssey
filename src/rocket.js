@@ -6,7 +6,7 @@ import {
     ROCKET_TRAVEL_DURATION,
     ROCKET_LANDING_LINGER // Add linger duration
 } from './config.js';
-import { rocketLaunchSound, playImpactSound, inventory, updateInventoryDisplay } from './resources.js'; // Import sound object, impact function, inventory, and UI update
+import { playRocketLaunchSound, playImpactSound, inventory, updateInventoryDisplay } from './resources.js'; // Import sound object, impact function, inventory, and UI update
 
 let sceneRef = null;
 let rocketMesh = null;
@@ -54,12 +54,8 @@ function resetRocket() {
     if (!rocketMesh) return;
     console.log("Resetting rocket...");
     
-    // Stop any lingering sounds associated with the rocket
-    if (rocketLaunchSound && rocketLaunchSound.isPlaying) {
-        console.log("Stopping rocket launch sound during reset.");
-        rocketLaunchSound.stop();
-    }
-    // Optionally reset impact sound state too if needed, but likely not necessary
+    // REMOVED block that tried to stop rocketLaunchSound directly
+    // The sound is not looped and will stop on its own.
 
     // State flags
     isActive = false;

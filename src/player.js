@@ -1,7 +1,15 @@
 import * as THREE from 'https://esm.sh/three@0.128.0';
 import * as config from './config.js';
 import { createSphere } from './planets.js';
-import { startRollingSound, stopRollingSound, setRollingSoundLoop, setRollingSoundVolume } from './resources.js'; // Import sound functions
+import { 
+    startRollingSound, 
+    stopRollingSound, 
+    setRollingSoundLoop, 
+    setRollingSoundVolume,
+    playBoostBurstSound,
+    playBoostRiseSound,
+    stopBoostRiseSound
+} from './resources.js'; // Import sound functions
 import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader.js'; // Use full URL
 
 // Module-level variables for player state
@@ -12,7 +20,8 @@ const keyState = {
     'ArrowDown': false, 
     'ArrowLeft': false, 
     'ArrowRight': false,
-    ' ': false // Spacebar
+    ' ': false, // Spacebar
+    'Shift': false // NEW: Track Shift key
 };
 
 // Path Trail variables
@@ -39,9 +48,16 @@ let isRollingSoundPlaying = false;
 let isRollingSoundFadingOut = false;
 let rollingFadeStartTime = 0;
 
+// --- Boost Trail --- (NEW)
+let boostTrailPoints = [];
+let boostTrailMesh = null;
+
 // Initialize Player
-function initPlayer(homePlanet, audioListener) {
+function initPlayer(scene, homePlanet, audioListener) {
     console.log("Player INIT: Creating player mesh...");
+    if (!scene) {
+        throw new Error("Player INIT: scene is required.");
+    }
     if (!homePlanet) {
         throw new Error("Player INIT: homePlanet is required.");
     }
@@ -65,6 +81,11 @@ function initPlayer(homePlanet, audioListener) {
         isRollingSoundPlaying: false,
         isRollingSoundFadingOut: false,
         rollingFadeStartTime: 0,
+        // --- NEW Boost State ---
+        // Initialize so boost is available immediately
+        lastBoostTime: performance.now() - (config.BOOST_COOLDOWN_DURATION * 1000 + 100), 
+        isRiseSoundPlaying: false, // Is the continuous rise sound playing?
+        wasBoostingLastFrame: false // Track boost state change for burst sound
     };
 
     // Player initial position is LOCAL to the home planet
@@ -164,6 +185,22 @@ function initPlayer(homePlanet, audioListener) {
             // Initialize Path Trail using PARENT object
             initializePathTrail(homePlanet, playerRoot); // Pass the PARENT
 
+            // --- NEW: Initialize Boost Trail --- 
+            const trailGeo = new THREE.BufferGeometry();
+            const trailMat = new THREE.MeshBasicMaterial({
+                color: config.BOOST_TRAIL_COLOR, // Base color, vertex colors will modify alpha
+                side: THREE.DoubleSide, // Render both sides
+                transparent: true,
+                vertexColors: true, // Use vertex colors for alpha gradient
+                // depthWrite: false // Optional: Prevents trail writing to depth buffer if needed
+            });
+            boostTrailMesh = new THREE.Mesh(trailGeo, trailMat);
+            boostTrailMesh.name = 'boostTrail';
+            boostTrailMesh.visible = false; // Start hidden
+            scene.add(boostTrailMesh); // Add to the main scene
+            console.log("Player INIT: Boost trail initialized.");
+            // --- END NEW Boost Trail Init ---
+
         }, 
         undefined, // onProgress callback (optional)
         function (error) { // Error callback
@@ -214,7 +251,8 @@ function initializePathTrail(parentObject, playerMeshRef) {
 
 // Event Handlers
 function handleKeyDown(event) {
-    if (event.key in keyState) {
+    // Use event.key for Shift detection (usually covers both Left and Right Shift)
+    if (event.key === 'Shift' || keyState.hasOwnProperty(event.key)) { 
         console.log(`[DEBUG] KeyDown detected: ${event.key}`);
         keyState[event.key] = true;
         
@@ -227,7 +265,8 @@ function handleKeyDown(event) {
 }
 
 function handleKeyUp(event) {
-    if (event.key in keyState) {
+    // Use event.key for Shift detection
+    if (event.key === 'Shift' || keyState.hasOwnProperty(event.key)) { 
         console.log(`[DEBUG] KeyUp detected: ${event.key}`);
         // console.log(`Key Up: ${event.key}`);
         keyState[event.key] = false;
@@ -299,41 +338,100 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     if (keyState['ArrowUp']) { 
         accelerationDirection.copy(tangentForward); 
         isMovingByKey = true; 
-        console.log("[DEBUG] KeyState Check: ArrowUp detected, Accel:", accelerationDirection);
+        // console.log("[DEBUG] KeyState Check: ArrowUp detected, Accel:", accelerationDirection); // REMOVED Log
     } 
     else if (keyState['ArrowDown']) { 
         accelerationDirection.copy(tangentForward).negate(); 
         isMovingByKey = true; 
-        console.log("[DEBUG] KeyState Check: ArrowDown detected, Accel:", accelerationDirection);
+        // console.log("[DEBUG] KeyState Check: ArrowDown detected, Accel:", accelerationDirection); // REMOVED Log
     } 
     else if (keyState['ArrowLeft']) { 
         accelerationDirection.copy(tangentRight); // Use POSITIVE tangentRight for LEFT
         isMovingByKey = true; 
-        console.log("[DEBUG] KeyState Check: ArrowLeft detected, Accel:", accelerationDirection);
+        // console.log("[DEBUG] KeyState Check: ArrowLeft detected, Accel:", accelerationDirection); // REMOVED Log
     } 
     else if (keyState['ArrowRight']) { 
         accelerationDirection.copy(tangentRight).negate(); // Use NEGATIVE tangentRight for RIGHT
         isMovingByKey = true; 
-        console.log("[DEBUG] KeyState Check: ArrowRight detected, Accel:", accelerationDirection);
+        // console.log("[DEBUG] KeyState Check: ArrowRight detected, Accel:", accelerationDirection); // REMOVED Log
     } 
 
+    // --- REVISED Boost Logic ---
+    const now = performance.now();
+    const wantsToBoost = keyState['Shift'];
+    const timeSinceLastBoost = (now - playerState.lastBoostTime) / 1000;
+    const isBoostOnCooldown = timeSinceLastBoost < config.BOOST_COOLDOWN_DURATION;
+    
+    // Determine if boosting THIS frame
+    let isBoosting = false;
+    if (wantsToBoost) {
+        if (playerState.wasBoostingLastFrame) {
+            // Continue boosting (ignore cooldown while active)
+            isBoosting = true;
+        } else if (!isBoostOnCooldown) {
+            // Start boosting this frame (only if not on cooldown)
+            isBoosting = true;
+        } 
+        // else: wants to boost, but wasn't boosting and is on cooldown -> remain false
+    } 
+    // else: wantsToBoost is false -> remain false
+
+    // --- Boost Debug Logs ---
+    console.log(`[BOOST DEBUG] wants:${wantsToBoost}, timeSince:${timeSinceLastBoost.toFixed(2)}, cooldown:${isBoostOnCooldown}, isBoosting:${isBoosting}, wasBoostingLastFrame:${playerState.wasBoostingLastFrame}`);
+    // --- END REVISED Boost Logic ---
+    
     // Apply acceleration and friction to playerState.velocity
     if (accelerationDirection.lengthSq() > 0) {
-        playerState.velocity.add(accelerationDirection.multiplyScalar(config.ACCELERATION * deltaTime));
-        if (playerState.velocity.length() > config.MAX_VELOCITY) {
-            playerState.velocity.normalize().multiplyScalar(config.MAX_VELOCITY);
+        // Use boost constants if boosting is active
+        const currentAcceleration = isBoosting ? config.BOOST_ACCELERATION : config.ACCELERATION;
+        const currentMaxVelocity = isBoosting ? config.BOOST_MAX_VELOCITY : config.MAX_VELOCITY;
+        
+        playerState.velocity.add(accelerationDirection.multiplyScalar(currentAcceleration * deltaTime));
+        if (playerState.velocity.length() > currentMaxVelocity) {
+            playerState.velocity.normalize().multiplyScalar(currentMaxVelocity);
         }
     } else {
-        playerState.velocity.multiplyScalar(1.0 - (1.0 - config.FRICTION) * deltaTime * 60); // Apply frame-rate independent friction more robustly
+        // Apply friction (no change needed here)
+        playerState.velocity.multiplyScalar(1.0 - (1.0 - config.FRICTION) * deltaTime * 60); 
     }
     
-    // Stop completely if velocity is very low to prevent jittering
-    if (playerState.velocity.lengthSq() < 1e-8) { // Use a small threshold (e.g., 0.0001 * 0.0001)
+    // Stop completely if velocity is very low (no change needed here)
+    if (playerState.velocity.lengthSq() < 1e-8) {
         playerState.velocity.set(0, 0, 0);
     }
 
-    // --- REVISED: Handle Rolling Sound with Fade Out --- 
-    const now = performance.now();
+    // --- REVISED Boost Sound & Cooldown Trigger Logic ---
+    if (isBoosting) {
+        // console.log("[BOOST DEBUG] Entering isBoosting block (Sounds/FX)."); // Can remove this inner log now
+        if (!playerState.wasBoostingLastFrame) {
+            // Boost just started this frame
+            playBoostBurstSound(playerMesh); 
+            // DO NOT START COOLDOWN HERE
+            console.log("[BOOST] Boost Activated!");
+        }
+        if (!playerState.isRiseSoundPlaying) {
+            // Start the rise sound if not already playing
+            playBoostRiseSound(playerMesh); 
+            playerState.isRiseSoundPlaying = true;
+        }
+    } else {
+        // Not boosting THIS frame
+        if (playerState.wasBoostingLastFrame) {
+            // Boost just STOPPED this frame
+            if (playerState.isRiseSoundPlaying) { // Check just in case
+                 stopBoostRiseSound();
+                 playerState.isRiseSoundPlaying = false;
+            }
+            playerState.lastBoostTime = now; // <<<<<< START COOLDOWN NOW >>>>>>
+            console.log("[BOOST] Boost Deactivated. Cooldown started.");
+        }
+        // else: was already not boosting, do nothing special
+    }
+    // --- END Boost Sound & Cooldown Logic ---
+    
+    // --- Handle Rolling Sound with Fade Out --- 
+    // Reuse 'now' calculated earlier for boost checks
+    // const now = performance.now(); // REMOVED REDECLARATION
     // Use the existing isMovingByKey calculated earlier
 
     // 1. Update Fade Out if it's happening
@@ -372,7 +470,7 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
         }
         // If already playing and not fading, do nothing.
 
-    } else {
+        } else {
         // Player is NOT pressing movement keys
         if (playerState.isRollingSoundPlaying && !playerState.isRollingSoundFadingOut) {
             // Was playing, but keys released: Initiate fade out
@@ -384,8 +482,32 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
         }
         // If already fading or not playing, do nothing.
     }
-    // --- END REVISED Sound Logic ---
+    // --- END Handle Rolling Sound with Fade Out ---
     
+    // --- Update Boost Trail --- 
+    // Check isBoosting state calculated earlier
+    if (isBoosting) {
+        boostTrailMesh.visible = true;
+        const currentPos = _playerWorldPos; 
+        const right = _vector3.set(1,0,0).applyQuaternion(playerMesh.quaternion).normalize(); 
+        const trailWidth = config.BOOST_TRAIL_WIDTH; 
+        const edge1 = currentPos.clone().add(right.clone().multiplyScalar(trailWidth / 2));
+        const edge2 = currentPos.clone().sub(right.clone().multiplyScalar(trailWidth / 2));
+        boostTrailPoints.unshift(edge1, edge2);
+        const maxPoints = config.BOOST_TRAIL_LENGTH * 2; 
+        if (boostTrailPoints.length > maxPoints) {
+            boostTrailPoints.length = maxPoints; 
+        }
+        updateBoostTrailGeometry(); 
+    } else {
+        if (boostTrailMesh.visible) { 
+            boostTrailMesh.visible = false;
+            boostTrailPoints = []; 
+            updateBoostTrailGeometry(); 
+        }
+    }
+    // --- END Boost Trail Update ---
+
     // --- Apply Gravity & Clamp to Surface ---
     // Gravity pulls towards the planet's center (in world space)
     const gravityDirection = _vector3.copy(_homePlanetWorldPos).sub(_playerWorldPos).normalize();
@@ -492,8 +614,17 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     // (Keep existing camera logic)
     // ... existing camera update code ...
 
-    // --- Path Trail Update ---
-    updatePathTrail(playerMesh); // Pass the mesh itself
+    // --- Update Path Trail ---
+    if (playerState.mesh) {
+        updatePathTrail(playerState.mesh);
+    }
+    // ------------------------
+
+    // --- Update Rolling Sound ---
+    const isMoving = playerState.velocity.lengthSq() > config.VELOCITY_THRESHOLD_SQ;
+
+    // --- Store boost state for next frame --- (This MUST be the last step for boost logic)
+    playerState.wasBoostingLastFrame = isBoosting;
 }
 
 // Update Path Trail Geometry
@@ -519,4 +650,83 @@ function updatePathTrail(playerMesh) {
 }
 
 // Export keyState and functions together at the end
-export { initPlayer, updatePlayer, updatePathTrail, keyState }; 
+export { initPlayer, updatePlayer, updatePathTrail, updateBoostTrailGeometry, keyState }; 
+
+// --- NEW: Boost Trail Geometry Update Function ---
+function updateBoostTrailGeometry() {
+    const geometry = boostTrailMesh.geometry;
+    const numSegments = boostTrailPoints.length / 2 - 1;
+
+    if (numSegments <= 0) {
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 4));
+        geometry.setIndex([]);
+        geometry.computeBoundingSphere();
+        return;
+    }
+
+    const numVertices = (numSegments + 1) * 2;
+    const positions = new Float32Array(numVertices * 3);
+    const colors = new Float32Array(numVertices * 4); // RGBA
+    const indices = [];
+
+    const baseColor = new THREE.Color(config.BOOST_TRAIL_COLOR);
+
+    for (let i = 0; i <= numSegments; i++) {
+        const pointIndex = i * 2;
+        const p1 = boostTrailPoints[pointIndex];
+        const p2 = boostTrailPoints[pointIndex + 1];
+
+        // Interpolate width (tapering)
+        const widthFactor = 1.0 - (i / numSegments); // 1.0 at start, 0.0 at end
+        const currentWidth = config.BOOST_TRAIL_MIN_WIDTH + (config.BOOST_TRAIL_WIDTH - config.BOOST_TRAIL_MIN_WIDTH) * widthFactor;
+
+        // Recalculate edge points based on interpolated width (simplified: assumes center is average of p1, p2)
+        const center = p1.clone().add(p2).multiplyScalar(0.5);
+        const dir = p1.clone().sub(p2).normalize();
+        const edge1 = center.clone().add(dir.clone().multiplyScalar(currentWidth / 2));
+        const edge2 = center.clone().sub(dir.clone().multiplyScalar(currentWidth / 2));
+
+        positions[pointIndex * 3] = edge1.x;
+        positions[pointIndex * 3 + 1] = edge1.y;
+        positions[pointIndex * 3 + 2] = edge1.z;
+        
+        positions[(pointIndex + 1) * 3] = edge2.x;
+        positions[(pointIndex + 1) * 3 + 1] = edge2.y;
+        positions[(pointIndex + 1) * 3 + 2] = edge2.z;
+
+        // Interpolate alpha
+        const alpha = 1.0 - (i / numSegments); // 1.0 at start, 0.0 at end
+
+        colors[pointIndex * 4] = baseColor.r;
+        colors[pointIndex * 4 + 1] = baseColor.g;
+        colors[pointIndex * 4 + 2] = baseColor.b;
+        colors[pointIndex * 4 + 3] = alpha;
+
+        colors[(pointIndex + 1) * 4] = baseColor.r;
+        colors[(pointIndex + 1) * 4 + 1] = baseColor.g;
+        colors[(pointIndex + 1) * 4 + 2] = baseColor.b;
+        colors[(pointIndex + 1) * 4 + 3] = alpha;
+
+        // Add indices for the quad (two triangles)
+        if (i < numSegments) {
+            const idx1 = pointIndex;       // Current Edge 1
+            const idx2 = pointIndex + 1;   // Current Edge 2
+            const idx3 = pointIndex + 2;   // Next Edge 1
+            const idx4 = pointIndex + 3;   // Next Edge 2
+
+            indices.push(idx1, idx2, idx3); // Triangle 1
+            indices.push(idx2, idx4, idx3); // Triangle 2
+        }
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 4));
+    geometry.setIndex(indices);
+    geometry.computeBoundingSphere(); // Important for visibility checks
+
+    // Mark attributes for update
+    geometry.attributes.position.needsUpdate = true;
+    geometry.attributes.color.needsUpdate = true;
+    geometry.index.needsUpdate = true;
+} 

@@ -34,6 +34,8 @@ let rollingSound = null;
 let ambientSound = null;
 let fuelPickupSound1 = null; // Sound for fuel pickup
 // let seedAccentSound = null; // REMOVED: Additional sound for seed pickup
+let boostBurstSound = null; // NEW
+let boostRiseSound = null;  // NEW
 
 // Array to track collected seeds for regeneration
 const collectedSeedsQueue = [];
@@ -341,7 +343,6 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
     sceneRef = scene;
     homePlanetRef = homePlanet;
     planetsStateRef = planetsState;
-    audioListenerRef = audioListener;
 
     // --- Load Seed (Tree) Model Asynchronously ---
     const seedLoader = new GLTFLoader();
@@ -443,96 +444,7 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
     );
     // --- End Fuel Model Loading ---
 
-    // Setup audio
-    const listener = audioListenerRef;
-    if (listener) {
-        pickupSound = new THREE.Audio(listener); // Seed pickup (NOW SINGLE SOUND)
-        rocketLaunchSound = new THREE.Audio(listener);
-        impactSound = new THREE.Audio(listener);
-        rollingSound = new THREE.Audio(listener);
-        ambientSound = new THREE.Audio(listener);
-        fuelPickupSound1 = new THREE.Audio(listener); // Fuel sound
-        // seedAccentSound = new THREE.Audio(listener); // REMOVED: Seed accent sound init
-        const audioLoader = new THREE.AudioLoader();
-
-        // Load SEED pickup sound (NOW single sound)
-        audioLoader.load('sfx/treefall.mp3', function(buffer) { // CHANGED Path
-            pickupSound.setBuffer(buffer);
-            pickupSound.setVolume(0.5); // Adjusted volume (was 0.4)
-            pickupSound.setLoop(false); // Ensure not looping
-            console.log("Seed (treefall) pickup sound loaded.");
-        }, undefined, function(err) {
-            console.error('Error loading seed pickup sound:', err);
-        });
-
-        // Load FUEL pickup sound
-        audioLoader.load('sfx/stone-break.wav', function(buffer) {
-            fuelPickupSound1.setBuffer(buffer);
-            fuelPickupSound1.setLoop(false);
-            fuelPickupSound1.setVolume(0.5);
-            console.log("Fuel pickup sound loaded.");
-        }, undefined, function(err) {
-            console.error('Error loading fuel pickup sound:', err);
-        });
-
-        // NEW: Load SEED accent sound - REMOVED
-        /*
-        audioLoader.load('sfx/collect-sound2.mp3', function(buffer) {
-            seedAccentSound.setBuffer(buffer);
-            seedAccentSound.setLoop(false);
-            seedAccentSound.setVolume(0.35); // Adjust volume as needed
-            console.log("Seed accent sound loaded.");
-        }, undefined, function(err) {
-            console.error('Error loading seed accent sound:', err);
-        });
-        */
-
-        // Load rocket launch sound
-        audioLoader.load('sfx/rocketsound.mp3', function(buffer) {
-            rocketLaunchSound.setBuffer(buffer);
-            rocketLaunchSound.setLoop(false); 
-            rocketLaunchSound.setVolume(0.6);
-            console.log("Rocket launch sound loaded.");
-        }, undefined, function(err) {
-            console.error('Error loading rocket launch sound:', err);
-        });
-
-        // Load impact sound
-        audioLoader.load('sfx/impact-sound.mp3', function(buffer) {
-            impactSound.setBuffer(buffer);
-            impactSound.setLoop(false); 
-            impactSound.setVolume(0.7); 
-            console.log("Impact sound loaded.");
-        }, undefined, function(err) {
-            console.error('Error loading impact sound:', err);
-        });
-
-        // Load rolling sound
-        audioLoader.load('sfx/rolling-sound.mp3', function(buffer) {
-            rollingSound.setBuffer(buffer);
-            rollingSound.setLoop(true); 
-            rollingSound.setVolume(config.ROLLING_SOUND_BASE_VOLUME);
-            console.log("Rolling sound loaded.");
-        }, undefined, function(err) {
-            console.error('Error loading rolling sound:', err);
-        });
-
-        // Load ambient sound
-        audioLoader.load('sfx/wind-soft-crickets.wav', function(buffer) {
-            ambientSound.setBuffer(buffer);
-            ambientSound.setLoop(true);
-            ambientSound.setVolume(0.3);
-            ambientSound.play(); 
-            console.log("Ambient sound loaded and playing.");
-        }, undefined, function(err) {
-            console.error('Error loading ambient sound:', err);
-        });
-
-    } else {
-        console.warn("Audio Listener not available, sounds disabled.");
-    }
-
-    console.log("Resources INIT: Finished initial setup (fuel items generating asynchronously).");
+    console.log("Resources INIT: Finished initial setup (model loading is async).");
 }
 
 // Create Inventory UI
@@ -883,7 +795,7 @@ function playFuelPickupSound() {
 }
 
 // Function to play the rocket launch sound
-export function playRocketLaunchSound() {
+function playRocketLaunchSound() {
     // --- Add More Logging ---
     console.log(`playRocketLaunchSound called. Current isPlaying: ${rocketLaunchSound?.isPlaying}`);
     // -----------------------
@@ -905,7 +817,7 @@ export function playRocketLaunchSound() {
 }
 
 // Function to play the impact sound
-export function playImpactSound() {
+function playImpactSound() {
     console.log("Attempting to play impact sound...");
     if (!impactSound) {
         console.warn("Impact sound object is null!");
@@ -936,7 +848,7 @@ export function playImpactSound() {
 }
 
 // Function to start the rolling sound
-export function startRollingSound() {
+function startRollingSound() {
     console.log("Attempting startRollingSound...");
     if (!rollingSound) { console.warn("startRollingSound: rollingSound object is null!"); return; }
     if (!rollingSound.buffer) { console.warn("startRollingSound: rollingSound buffer is null!"); return; }
@@ -953,14 +865,14 @@ export function startRollingSound() {
 }
 
 // Function to set the loop property
-export function setRollingSoundLoop(shouldLoop) {
+function setRollingSoundLoop(shouldLoop) {
     if (rollingSound) {
         rollingSound.setLoop(shouldLoop);
     }
 }
 
 // Function to set the volume
-export function setRollingSoundVolume(volume) {
+function setRollingSoundVolume(volume) {
     if (rollingSound) {
         // Clamp volume between 0 and 1
         const clampedVolume = Math.max(0, Math.min(1, volume));
@@ -969,7 +881,7 @@ export function setRollingSoundVolume(volume) {
 }
 
 // Function to stop the rolling sound (hard stop)
-export function stopRollingSound() {
+function stopRollingSound() {
     console.log("Attempting stopRollingSound...");
     if (!rollingSound) { console.warn("stopRollingSound: rollingSound object is null!"); return; }
     
@@ -982,16 +894,239 @@ export function stopRollingSound() {
     }
 }
 
+// Function to load all audio assets and return a Promise
+function loadAudio(listener) {
+    return new Promise((resolve, reject) => { // Wrap in a Promise
+        audioListenerRef = listener; // Store listener reference
+        const loader = new THREE.AudioLoader();
+        let soundsLoaded = 0;
+        const totalSoundsToLoad = 8; // **UPDATE THIS COUNT** if you add/remove sounds
+
+        const checkAllLoaded = () => {
+            soundsLoaded++;
+            console.log(`[Audio Load] Loaded sound ${soundsLoaded} / ${totalSoundsToLoad}`);
+            if (soundsLoaded === totalSoundsToLoad) {
+                console.log("All audio loaded successfully.");
+                resolve(); // Resolve the main promise
+            }
+        };
+
+        const onError = (url, err) => {
+             console.error(`Error loading sound: ${url}`, err);
+             // Optionally reject, or just log and continue?
+             // For now, let's count it as "loaded" (but failed) to not block forever
+             checkAllLoaded(); 
+             // reject(new Error(`Failed to load sound: ${url}`)); // Alternative: Fail fast
+        };
+
+        // Load SEED pickup sound
+        loader.load('sfx/treefall.mp3', 
+            (buffer) => { 
+                pickupSound = new THREE.Audio(audioListenerRef);
+                pickupSound.setBuffer(buffer);
+                pickupSound.setVolume(0.5);
+                pickupSound.setLoop(false);
+                console.log("Seed (treefall) pickup sound loaded.");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/treefall.mp3', err)
+        );
+
+        // Load FUEL pickup sound
+        loader.load('sfx/stone-break.wav', 
+            (buffer) => {
+                fuelPickupSound1 = new THREE.Audio(audioListenerRef);
+                fuelPickupSound1.setBuffer(buffer);
+                fuelPickupSound1.setLoop(false);
+                fuelPickupSound1.setVolume(0.5);
+                console.log("Fuel pickup sound loaded.");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/stone-break.wav', err)
+        );
+
+        // Load rocket launch sound
+        loader.load('sfx/rocketsound.mp3', 
+            (buffer) => {
+                rocketLaunchSound = new THREE.Audio(audioListenerRef);
+                rocketLaunchSound.setBuffer(buffer);
+                rocketLaunchSound.setLoop(false); 
+                rocketLaunchSound.setVolume(0.6);
+                console.log("Rocket launch sound loaded.");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/rocketsound.mp3', err)
+        );
+
+        // Load impact sound
+        loader.load('sfx/impact-sound.mp3', 
+            (buffer) => {
+                impactSound = new THREE.Audio(audioListenerRef);
+                impactSound.setBuffer(buffer);
+                impactSound.setLoop(false); 
+                impactSound.setVolume(0.7); 
+                console.log("Impact sound loaded.");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/impact-sound.mp3', err)
+        );
+
+        // Load rolling sound
+        loader.load('sfx/rolling-sound.mp3', 
+            (buffer) => {
+                rollingSound = new THREE.Audio(audioListenerRef);
+                rollingSound.setBuffer(buffer);
+                rollingSound.setLoop(true); 
+                rollingSound.setVolume(config.ROLLING_SOUND_BASE_VOLUME);
+                console.log("Rolling sound loaded.");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/rolling-sound.mp3', err)
+        );
+
+        // Load ambient sound
+        loader.load('sfx/wind-soft-crickets.wav', 
+            (buffer) => {
+                ambientSound = new THREE.Audio(audioListenerRef); 
+                ambientSound.setBuffer(buffer);
+                ambientSound.setLoop(true);
+                ambientSound.setVolume(0.3);
+                console.log("Ambient sound loaded."); 
+                // Don't auto-play here, let main control it after loading
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/wind-soft-crickets.wav', err)
+        );
+
+        // Load Boost Burst Sound
+        loader.load('sfx/boost_burst.mp3', 
+            (buffer) => {
+                boostBurstSound = new THREE.PositionalAudio(audioListenerRef);
+                boostBurstSound.setBuffer(buffer);
+                boostBurstSound.setRefDistance(10);
+                boostBurstSound.setRolloffFactor(1);
+                boostBurstSound.setVolume(0.6); 
+                boostBurstSound.loop = false;
+                console.log("Boost Burst sound loaded.");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/boost_burst.mp3', err)
+        );
+
+        // Load Boost Rise Sound
+        loader.load('sfx/boost_rise.mp3', 
+            (buffer) => {
+                boostRiseSound = new THREE.PositionalAudio(audioListenerRef);
+                boostRiseSound.setBuffer(buffer);
+                boostRiseSound.setRefDistance(15);
+                boostRiseSound.setRolloffFactor(1);
+                boostRiseSound.setVolume(0.5); 
+                boostRiseSound.loop = false; 
+                console.log("Boost Rise sound loaded.");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/boost_rise.mp3', err)
+        );
+    }); // End of Promise wrapper
+}
+
+// --- NEW: Boost Sound Playback Functions ---
+function playBoostBurstSound(parentObject) { 
+    if (!boostBurstSound) { // Check object first
+        console.warn("[SOUND DEBUG] playBoostBurstSound: boostBurstSound object is null.");
+        return;
+    }
+    if (!boostBurstSound.buffer) { // Then check buffer
+        console.warn("[SOUND DEBUG] playBoostBurstSound: boostBurstSound buffer is not loaded yet.");
+        return;
+    }
+    if (!parentObject) {
+        console.warn("[SOUND DEBUG] Boost Burst needs parent object to attach to.");
+        return;
+    }
+    // Attach sound to player mesh for positional audio
+    if (boostBurstSound.parent !== parentObject) {
+        parentObject.add(boostBurstSound);
+    }
+    // Stop if playing to allow retrigger
+    if (boostBurstSound.isPlaying) {
+        boostBurstSound.stop();
+    }
+    console.log("[SOUND DEBUG] Playing Boost Burst sound.");
+    boostBurstSound.play();
+}
+
+function playBoostRiseSound(parentObject) {
+    if (!boostRiseSound) { // Check object first
+        console.warn("[SOUND DEBUG] playBoostRiseSound: boostRiseSound object is null.");
+        return;
+    }
+    if (!boostRiseSound.buffer) { // Then check buffer
+        console.warn("[SOUND DEBUG] playBoostRiseSound: boostRiseSound buffer is not loaded yet.");
+        return;
+    }
+     if (!parentObject) {
+        console.warn("[SOUND DEBUG] Boost Rise needs parent object to attach to.");
+        return;
+    }
+    // Attach sound to player mesh
+    if (boostRiseSound.parent !== parentObject) {
+         parentObject.add(boostRiseSound);
+    }
+    // Play only if not already playing
+    if (!boostRiseSound.isPlaying) {
+        console.log("[SOUND DEBUG] Playing Boost Rise sound.");
+        boostRiseSound.play();
+    }
+}
+
+function stopBoostRiseSound() {
+    if (!boostRiseSound) {
+         console.warn("[SOUND DEBUG] Boost Rise sound object not found for stopping.");
+         return;
+    }
+    if (boostRiseSound.isPlaying) {
+        console.log("[SOUND DEBUG] Stopping Boost Rise sound.");
+        boostRiseSound.stop();
+    }
+    // Optionally detach from parent when stopped
+    if (boostRiseSound.parent) {
+        boostRiseSound.parent.remove(boostRiseSound);
+    }
+}
+// --- END NEW Boost Sound Functions --- 
+
 // --- Resource Management Functions ---
 // export function hasResources(seedCost, fuelCost) { ... } // Check happens in main.js
 // export function spendResources(seedCost, fuelCost) { ... } // Deduction happens in main.js/rocket.js
 
 // Exports
 export {
+    // Core resource functions
     initResources,
     updateResources,
+    // UI functions
     createInventoryUI,
-    updateInventoryDisplay, // Export for use in main.js?
-    rocketLaunchSound,
-    // ... other sound exports ...
+    updateInventoryDisplay, 
+    // Audio Loading
+    loadAudio, 
+    // Specific Sound Playback/Control Functions
+    playRocketLaunchSound, 
+    playImpactSound,
+    startRollingSound,
+    setRollingSoundLoop,
+    setRollingSoundVolume,
+    stopRollingSound,
+    playBoostBurstSound, 
+    playBoostRiseSound,
+    stopBoostRiseSound
+    // Add any other functions from this module that need exporting
 }; 

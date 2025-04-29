@@ -1,6 +1,9 @@
 // Physics Constants
 export const MAX_VELOCITY = 30; // Resetting to a more moderate value
-export const ACCELERATION = 50; // Resetting to a more moderate value
+export const ACCELERATION = 50; // Rate of acceleration
+export const BOOST_MAX_VELOCITY = 60; // NEW: Max speed when boosting
+export const BOOST_ACCELERATION = 100; // NEW: Acceleration when boosting
+export const BOOST_COOLDOWN_DURATION = 10.0; // NEW: Seconds before boost can be used again
 export const FRICTION = 0.98; // <<< MUST be less than 1 for friction
 export const POLE_THRESHOLD = 1e-8;
 
@@ -123,3 +126,9 @@ export const SYSTEM_RADIUS = 200; // Radius of the circular path planets orbit o
 
 // --- Debugging ---
 export const DEBUG_SHOW_PLAYER_AXES = true; // Toggle visibility of player's local axes 
+
+// --- Boost Trail --- (NEW)
+export const BOOST_TRAIL_COLOR = 0x00aaff; // Light blue
+export const BOOST_TRAIL_LENGTH = 30; // Number of segments
+export const BOOST_TRAIL_WIDTH = 1.5; // Width at player
+export const BOOST_TRAIL_MIN_WIDTH = 0.1; // Width at tail end 

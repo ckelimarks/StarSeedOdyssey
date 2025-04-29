@@ -8,7 +8,7 @@ import * as config from './config.js';
 import { initScene } from './scene.js';
 import { initPlayer, updatePlayer, updatePathTrail, keyState } from './player.js';
 import { initPlanets, updateOrbits } from './planets.js';
-import { initResources, updateResources, inventory, updateInventoryDisplay, createInventoryUI, playRocketLaunchSound } from './resources.js';
+import { initResources, updateResources, inventory, updateInventoryDisplay, createInventoryUI, playRocketLaunchSound, loadAudio } from './resources.js';
 import { initRocket, updateRocket, launchRocket, isRocketActive, isRocketStationed, placeRocketOnPad, hideRocketFromPad, rocketMesh } from './rocket.js';
 import { updateCamera } from './camera.js';
 
@@ -41,6 +41,8 @@ let launchPromptElement = null;
 let missionStatusElement = null; // NEW: Reference for mission status message
 let debugFillButton = null; // NEW: Reference for debug button
 let debugInstantTerraformButton = null; // NEW: Reference for instant terraform button
+let boostMeterFillElement = null; // NEW
+let boostStatusElement = null; // NEW
 
 // Temp vectors for calculations
 const _tempPlayerPos = new THREE.Vector3();
@@ -81,6 +83,32 @@ function updateTerraformButton(enabled, planetName) {
         console.warn("Terraform Button element not found.");
     }
 }
+
+// --- NEW: Boost Meter UI Update ---
+function updateBoostMeterUI() {
+    if (!boostMeterFillElement || !boostStatusElement || !window.playerState) {
+        return; // Exit if elements or player state aren't ready
+    }
+
+    const now = performance.now();
+    const timeSinceLastBoost = (now - window.playerState.lastBoostTime) / 1000;
+    const cooldownDuration = config.BOOST_COOLDOWN_DURATION;
+    
+    if (timeSinceLastBoost >= cooldownDuration) {
+        boostMeterFillElement.style.width = '100%';
+        boostStatusElement.textContent = 'Ready';
+        boostStatusElement.style.color = '#00ff88'; // Ready color
+    } else {
+        const cooldownProgress = timeSinceLastBoost / cooldownDuration;
+        const fillPercentage = cooldownProgress * 100;
+        boostMeterFillElement.style.width = `${fillPercentage}%`;
+        
+        const timeLeft = cooldownDuration - timeSinceLastBoost;
+        boostStatusElement.textContent = `Wait ${timeLeft.toFixed(1)}s`;
+        boostStatusElement.style.color = '#ffcc00'; // Cooldown color
+    }
+}
+// --- END NEW Boost Meter UI ---
 
 // --- Terraform Action ---
 function handleTerraformClick() {
@@ -164,7 +192,8 @@ function handleDebugInstantTerraform() {
     */
 }
 
-function init() {
+// --- Initialize the application ---
+async function init() {
     console.log("Main INIT: Starting initialization...");
 
     try {
@@ -175,86 +204,168 @@ function init() {
         renderer = sceneObjs.renderer;
         audioListener = sceneObjs.audioListener;
 
-        // --- Step 2: Initialize Planets ---
+        // --- Step 1.5: Load Audio Asynchronously and Wait ---
+        console.log("Main INIT: Loading audio...");
+        try {
+            await loadAudio(audioListener);
+            console.log("Main INIT: Audio loaded successfully.");
+            // Start ambient sound now that loading is confirmed
+            if (window.ambientSound && window.ambientSound.buffer && !window.ambientSound.isPlaying) {
+                 if (window.ambientSound.context.state === 'running') {
+                     console.log("Main INIT: Starting ambient sound.");
+                     window.ambientSound.play();
+                 } else {
+                    console.warn("Main INIT: Ambient sound loaded, but audio context not running, cannot play.");
+                 } 
+            } else {
+                 console.warn("Main INIT: Ambient sound object or buffer not ready after loadAudio resolved?");
+            }
+        } catch (error) {
+            console.error("Main INIT: Failed to load audio. Gameplay might be affected.", error);
+            // Decide how to proceed - maybe show an error message?
+        }
+        // -------------------------------------------------------
+
+        // --- Step 2: Initialize Stats (Performance Monitor) ---
+        stats = new Stats();
+        stats.domElement.style.position = 'absolute';
+        stats.domElement.style.top = '0px';
+        stats.domElement.style.right = '0px'; // Position top-right
+        stats.domElement.style.left = 'auto'; // Override default left positioning
+        document.body.appendChild(stats.dom);
+        console.log("Main INIT: Stats initialized.");
+
+        // --- Step 3: Initialize Planets ---
         const planetObjs = initPlanets(scene);
         planetsState = planetObjs.planets;
         homePlanet = planetObjs.homePlanet;
         if (!homePlanet) {
-            throw new Error("Initialization Error: Home planet not found after initPlanets.");
+            throw new Error("Main INIT: Home planet mesh not found after initPlanets!");
         }
+        console.log("Main INIT: Planets initialized.");
 
-        // --- Store Launch Pad LOCAL Position ---
-        _launchPadLocalPos.set(0, homePlanet.geometry.parameters.radius, 0);
-        const offsetAngle = Math.PI / 16;
-        const rotationAxis = new THREE.Vector3(1, 0, 0);
-        const offsetQuaternion = new THREE.Quaternion().setFromAxisAngle(rotationAxis, offsetAngle);
-        _launchPadLocalPos.applyQuaternion(offsetQuaternion);
-        console.log(`Launch Pad Local Position Stored: ${_launchPadLocalPos.x.toFixed(2)}, ${_launchPadLocalPos.y.toFixed(2)}, ${_launchPadLocalPos.z.toFixed(2)}`);
-
-        // --- Step 3: Initialize Player ---
-        window.playerState = initPlayer(homePlanet, audioListener);
-
-        // --- Step 4: Initialize Resources (Previously Gems) ---
+        // --- Step 4: Initialize Resources ---
         initResources(scene, homePlanet, planetsState, audioListener);
-        createInventoryUI();
+        console.log("Main INIT: Resources initialized.");
 
-        // --- Step 5: Initialize Rocket ---
+        // --- Step 5: Initialize Player ---
+        // Make playerState globally accessible (consider alternatives later if needed)
+        window.playerState = initPlayer(scene, homePlanet, audioListener);
+        console.log("Main INIT: Player initialized.");
+
+        // --- Step 6: Initialize Rocket ---
         initRocket(scene, homePlanet);
+        console.log("Main INIT: Rocket initialized.");
 
-        // --- Step 6: Initialize UI Elements & State ---
-        seedBankElement = document.getElementById('seed-bank-display');
-        terraformButton = document.getElementById('terraform-button');
+        // --- Step 7: Create UI ---
+        createInventoryUI();
+        // Add other UI elements
+        seedBankElement = document.createElement('div');
+        seedBankElement.id = 'seed-bank';
+        seedBankElement.style.position = 'absolute';
+        seedBankElement.style.bottom = '60px';
+        seedBankElement.style.left = '10px';
+        seedBankElement.style.color = 'white';
+        seedBankElement.style.fontFamily = 'Arial, sans-serif';
+        seedBankElement.style.fontSize = '14px';
+        seedBankElement.style.textShadow = '1px 1px 2px black';
+        seedBankElement.textContent = 'Target Seeds: 0 / 0'; // Initial text
+        document.body.appendChild(seedBankElement);
+
+        terraformButton = document.createElement('button');
+        terraformButton.id = 'terraform-button';
+        terraformButton.style.position = 'absolute';
+        terraformButton.style.bottom = '80px';
+        terraformButton.style.left = '10px';
+        terraformButton.style.padding = '8px 12px';
+        terraformButton.style.border = 'none';
+        terraformButton.style.borderRadius = '4px';
+        terraformButton.addEventListener('click', handleTerraformClick);
+        updateTerraformButton(false, 'Infernia'); // Initial state (disabled)
+        document.body.appendChild(terraformButton);
+        
+        // Get reference to launch prompt from resources.js UI
         launchPromptElement = document.getElementById('launch-prompt');
-        missionStatusElement = document.getElementById('mission-status-display');
-        debugFillButton = document.getElementById('debug-fill-resources');
-        debugInstantTerraformButton = document.getElementById('debug-instant-terraform'); // Get button
-
-        if (!launchPromptElement) {
-            console.error("Launch prompt UI element (#launch-prompt) not found!");
-        }
-        if (!missionStatusElement) {
-            console.error("Mission status UI element (#mission-status-display) not found!");
-        }
-        if (!debugFillButton) { 
-            console.error("Debug fill button (#debug-fill-resources) not found!");
-        }
-        if (!debugInstantTerraformButton) { 
-            console.error("Debug instant terraform button (#debug-instant-terraform) not found!");
-        }
         
-        // Add Event Listeners
-        if (terraformButton) {
-            terraformButton.addEventListener('click', handleTerraformClick);
-        }
-        if (debugFillButton) {
+        // Create Mission Status Message Area
+        missionStatusElement = document.createElement('div');
+        missionStatusElement.id = 'mission-status';
+        missionStatusElement.style.position = 'absolute';
+        missionStatusElement.style.bottom = '10px'; // Positioned at the very bottom
+        missionStatusElement.style.left = '10px';
+        missionStatusElement.style.color = '#ffcc00'; // Yellow/gold color
+        missionStatusElement.style.fontFamily = 'Arial, sans-serif';
+        missionStatusElement.style.fontSize = '16px';
+        missionStatusElement.style.fontWeight = 'bold';
+        missionStatusElement.style.textShadow = '1px 1px 2px black';
+        missionStatusElement.textContent = 'Mission: Terraform Infernia'; // Initial message
+        document.body.appendChild(missionStatusElement);
+
+        // NEW: Create Boost Meter UI
+        const boostMeterContainer = document.createElement('div');
+        boostMeterContainer.style.position = 'absolute';
+        boostMeterContainer.style.bottom = '10px';
+        boostMeterContainer.style.right = '10px';
+        boostMeterContainer.style.width = '150px';
+        boostMeterContainer.style.height = '20px';
+        boostMeterContainer.style.backgroundColor = 'rgba(50, 50, 50, 0.7)';
+        boostMeterContainer.style.border = '1px solid #888';
+        boostMeterContainer.style.borderRadius = '3px';
+        boostMeterContainer.style.overflow = 'hidden';
+
+        boostMeterFillElement = document.createElement('div');
+        boostMeterFillElement.style.width = '0%'; // Start empty (will update)
+        boostMeterFillElement.style.height = '100%';
+        boostMeterFillElement.style.backgroundColor = '#00aaff'; // Boost color
+        boostMeterFillElement.style.transition = 'width 0.1s linear'; // Smooth fill transition
+
+        boostStatusElement = document.createElement('div');
+        boostStatusElement.style.position = 'absolute';
+        boostStatusElement.style.top = '0';
+        boostStatusElement.style.left = '0';
+        boostStatusElement.style.width = '100%';
+        boostStatusElement.style.height = '100%';
+        boostStatusElement.style.display = 'flex';
+        boostStatusElement.style.alignItems = 'center';
+        boostStatusElement.style.justifyContent = 'center';
+        boostStatusElement.style.color = 'white';
+        boostStatusElement.style.fontSize = '12px';
+        boostStatusElement.style.textShadow = '1px 1px 1px black';
+
+        boostMeterContainer.appendChild(boostMeterFillElement);
+        boostMeterContainer.appendChild(boostStatusElement);
+        document.body.appendChild(boostMeterContainer);
+        // ---------------------------
+        
+        // Create Debug Buttons
+        debugFillButton = document.createElement('button');
+        debugFillButton.textContent = 'Debug: Fill Resources';
+        debugFillButton.style.position = 'absolute';
+        debugFillButton.style.top = '60px';
+        debugFillButton.style.right = '10px';
             debugFillButton.addEventListener('click', handleDebugFillResources);
-        }
-        if (debugInstantTerraformButton) {
+        document.body.appendChild(debugFillButton);
+
+        debugInstantTerraformButton = document.createElement('button');
+        debugInstantTerraformButton.textContent = 'Debug: Trigger Terraform';
+        debugInstantTerraformButton.style.position = 'absolute';
+        debugInstantTerraformButton.style.top = '90px';
+        debugInstantTerraformButton.style.right = '10px';
             debugInstantTerraformButton.addEventListener('click', handleDebugInstantTerraform);
-        }
-        
-        // Initial UI update for seed bank (hardcoded target for now)
-        const targetPlanetName = 'Infernia';
-        if (planetsState[targetPlanetName]){
-             updateSeedBankUI(targetPlanetName, planetsState[targetPlanetName].seedsDelivered, planetsState[targetPlanetName].seedsRequired);
-             updateTerraformButton(false, targetPlanetName); // Start disabled
-        } else {
-            console.error(`Target planet ${targetPlanetName} not found for initial UI setup.`);
-            if(seedBankElement) seedBankElement.textContent = "Error: Target planet not found.";
-            if(terraformButton) terraformButton.disabled = true;
-        }
+        document.body.appendChild(debugInstantTerraformButton);
 
-        // --- Step 7: Initialize Stats --- 
-        stats = new Stats();
-        stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
-        document.body.appendChild(stats.dom);
-        console.log("Main INIT: Stats initialized.");
+        console.log("Main INIT: UI created.");
 
-        console.log("Main INIT: Finished initialization.");
-        animate(); // Start the main loop
+        // --- Step 8: Start Animation Loop ---
+        console.log("Main INIT: Starting animation loop.");
+        animate(); 
+
+        console.log("Main INIT: Initialization complete.");
+
     } catch (error) {
-        console.error("Initialization failed:", error);
-        // Handle initialization error appropriately (e.g., display message)
+        console.error("Main INIT: Critical error during initialization!", error);
+        // Display error to user?
+        document.body.innerHTML = `<div style="color: red; padding: 20px;">Initialization Failed: ${error.message}<br><pre>${error.stack}</pre></div>`;
     }
 }
 
@@ -435,12 +546,12 @@ function animate() {
                 if (seedsToLaunch > 0) {
                     console.log(`RESOURCE CHECK: seeds=${inventory.seeds}, fuel=${inventory.fuel.toFixed(1)}, neededFuel=${fuelNeeded.toFixed(1)}`);
                     if (inventory.fuel >= fuelNeeded) {
-                        console.log(`Launch initiated for ${seedsToLaunch} seeds. Fuel Needed: ${fuelNeeded}. Fuel Available: ${inventory.fuel.toFixed(0)}`);
-                        
-                        const targetPlanetName = 'Infernia'; 
-                        const targetPlanetData = planetsState[targetPlanetName];
-                        
-                        if (targetPlanetData?.mesh && targetPlanetData?.config) {
+                    console.log(`Launch initiated for ${seedsToLaunch} seeds. Fuel Needed: ${fuelNeeded}. Fuel Available: ${inventory.fuel.toFixed(0)}`);
+                    
+                    const targetPlanetName = 'Infernia'; 
+                    const targetPlanetData = planetsState[targetPlanetName];
+                    
+                    if (targetPlanetData?.mesh && targetPlanetData?.config) {
                              // --- ADDED Double Check for Pending Launch --- 
                              if (!isLaunchPending) { // Only proceed if not already pending
                                  console.log(`Target valid. Setting pending launch state.`);
@@ -449,11 +560,11 @@ function animate() {
                                  console.log(`SOUND TRIGGER: Spacebar press #${spacebarPressCount}`); // Log count
                                  playRocketLaunchSound(); 
                                  // -------------------------------------
-                                 pendingLaunchTarget = targetPlanetData;
-                                 pendingLaunchPayload = seedsToLaunch;
+                         pendingLaunchTarget = targetPlanetData;
+                         pendingLaunchPayload = seedsToLaunch;
                                  pendingLaunchFuelCost = fuelNeeded; 
-                                 isLaunchPending = true;
-                                 launchPendingStartTime = performance.now();
+                         isLaunchPending = true;
+                         launchPendingStartTime = performance.now();
                              } else {
                                 console.log("Launch already pending, ignoring rapid spacebar press.");
                              }
@@ -465,7 +576,7 @@ function animate() {
                         console.warn("Launch attempt ignored: Insufficient fuel.");
                     }
                 } else {
-                    console.log("Launch attempt ignored: No seeds available.");
+                        console.log("Launch attempt ignored: No seeds available.");
                 }
             }
         }
@@ -522,6 +633,12 @@ function animate() {
     } else { // Default player following
         updateCamera(camera, window.playerState.mesh, homePlanet);
     }
+
+    // --- Update UI --- (Moved together)
+    updateInventoryDisplay();
+    updateBoostMeterUI(); // Call boost meter update
+    // Potentially move other UI updates like launch prompt here too
+    // ... (Launch Pad UI logic) ... 
 
     // --- Render Scene ---
     if (renderer && scene && camera) {
