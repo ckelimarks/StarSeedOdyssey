@@ -449,60 +449,153 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
 
 // Create Inventory UI
 function createInventoryUI() {
-    const container = document.createElement('div');
-    container.style.position = 'absolute';
-    container.style.top = '20px';
-    container.style.left = '20px';
-    container.style.color = 'white';
-    container.style.fontFamily = 'Arial, sans-serif';
-    container.style.fontSize = '14px'; // Slightly smaller font
-    container.style.userSelect = 'none';
-    container.style.textShadow = '2px 2px 4px rgba(0, 0, 0, 0.5)';
-    
-    // Seeds Display
+    const inventoryContainer = document.createElement('div');
+    inventoryContainer.id = 'inventory-container';
+    inventoryContainer.style.position = 'absolute';
+    inventoryContainer.style.top = '10px';
+    inventoryContainer.style.left = '10px';
+    inventoryContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    inventoryContainer.style.padding = '10px';
+    inventoryContainer.style.borderRadius = '5px';
+    inventoryContainer.style.color = 'white';
+    inventoryContainer.style.fontFamily = 'Helvetica, Arial, sans-serif'; 
+    inventoryContainer.style.fontSize = '14px'; // Slightly smaller base font for bars
+    inventoryContainer.style.zIndex = '100'; 
+    inventoryContainer.style.display = 'flex'; // Use flexbox
+    inventoryContainer.style.flexDirection = 'column'; // Stack items vertically
+    inventoryContainer.style.gap = '8px'; // Add gap between bars
+
+    // --- Seed Bar --- 
+    const seedBarContainer = document.createElement('div');
+    seedBarContainer.style.position = 'relative'; // For absolute positioning of text/fill
+    seedBarContainer.style.width = '150px'; // Match boost bar width
+    seedBarContainer.style.height = '20px';
+    seedBarContainer.style.backgroundColor = 'rgba(50, 50, 50, 0.7)';
+    seedBarContainer.style.border = '1px solid #888';
+    seedBarContainer.style.borderRadius = '3px';
+    seedBarContainer.style.overflow = 'hidden';
+
+    const seedBarFill = document.createElement('div');
+    seedBarFill.id = 'seed-bar-fill'; // ID for updating width
+    seedBarFill.style.height = '100%';
+    seedBarFill.style.backgroundColor = '#00cc44'; // Green for seeds
+    seedBarFill.style.borderRadius = '2px'; // Slightly smaller radius for inner bar
+    seedBarFill.style.transition = 'width 0.2s ease-out';
+    seedBarFill.style.width = '0%'; // Start empty
+
     const seedsElement = document.createElement('div');
-    seedsElement.id = 'seeds-display';
-    container.appendChild(seedsElement);
+    seedsElement.id = 'inventory-seeds';
+    seedsElement.textContent = `Seeds: ${inventory.seeds} / ${config.MAX_SEEDS}`;
+    // Style text to overlay the bar
+    seedsElement.style.position = 'absolute';
+    seedsElement.style.top = '0';
+    seedsElement.style.left = '0';
+    seedsElement.style.width = '100%';
+    seedsElement.style.height = '100%';
+    seedsElement.style.display = 'flex';
+    seedsElement.style.alignItems = 'center';
+    seedsElement.style.justifyContent = 'center';
+    seedsElement.style.color = 'white';
+    seedsElement.style.textShadow = '1px 1px 1px black';
+    seedsElement.style.zIndex = '1'; // Ensure text is above fill
 
-    // Fuel Display (Add this)
+    seedBarContainer.appendChild(seedBarFill);
+    seedBarContainer.appendChild(seedsElement); 
+    // ----------------
+
+    // --- Fuel Bar --- 
+    const fuelBarContainer = document.createElement('div');
+    fuelBarContainer.style.position = 'relative';
+    fuelBarContainer.style.width = '150px';
+    fuelBarContainer.style.height = '20px';
+    fuelBarContainer.style.backgroundColor = 'rgba(50, 50, 50, 0.7)';
+    fuelBarContainer.style.border = '1px solid #888';
+    fuelBarContainer.style.borderRadius = '3px';
+    fuelBarContainer.style.overflow = 'hidden';
+
+    const fuelBarFill = document.createElement('div');
+    fuelBarFill.id = 'fuel-bar-fill'; // ID for updating width
+    fuelBarFill.style.height = '100%';
+    fuelBarFill.style.backgroundColor = '#dd4400'; // Red/Orange for fuel
+    fuelBarFill.style.borderRadius = '2px';
+    fuelBarFill.style.transition = 'width 0.2s ease-out';
+    fuelBarFill.style.width = '0%'; // Start empty
+
     const fuelElement = document.createElement('div');
-    fuelElement.id = 'fuel-display';
-    fuelElement.style.marginTop = '5px';
-    container.appendChild(fuelElement);
+    fuelElement.id = 'inventory-fuel';
+    fuelElement.textContent = `Fuel: ${inventory.fuel.toFixed(0)} / ${config.MAX_FUEL}`;
+    // Style text to overlay the bar
+    fuelElement.style.position = 'absolute';
+    fuelElement.style.top = '0';
+    fuelElement.style.left = '0';
+    fuelElement.style.width = '100%';
+    fuelElement.style.height = '100%';
+    fuelElement.style.display = 'flex';
+    fuelElement.style.alignItems = 'center';
+    fuelElement.style.justifyContent = 'center';
+    fuelElement.style.color = 'white';
+    fuelElement.style.textShadow = '1px 1px 1px black';
+    fuelElement.style.zIndex = '1';
 
-    // Launch Prompt Display
+    fuelBarContainer.appendChild(fuelBarFill);
+    fuelBarContainer.appendChild(fuelElement);
+    // ----------------
+
+    // --- Launch Prompt (Remains the same structure) ---
     const launchPromptElement = document.createElement('div');
     launchPromptElement.id = 'launch-prompt';
-    launchPromptElement.style.marginTop = '5px'; // Add some space
-    launchPromptElement.style.color = '#00ff00'; // Green color for prompt
-    launchPromptElement.style.display = 'none'; // Hidden initially
-    container.appendChild(launchPromptElement);
+    // Removed absolute positioning relative to inventory container, now positioned by flex gap
+    // launchPromptElement.style.position = 'absolute'; 
+    // launchPromptElement.style.bottom = '-50px'; 
+    // launchPromptElement.style.left = '0'; 
+    // launchPromptElement.style.width = 'calc(100% + 20px)'; 
+    // launchPromptElement.style.marginLeft = '-10px';
+    launchPromptElement.style.marginTop = '5px'; // Add some top margin instead
+    launchPromptElement.style.padding = '8px';
+    launchPromptElement.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    launchPromptElement.style.border = '1px solid #555';
+    launchPromptElement.style.borderRadius = '4px';
+    launchPromptElement.style.textAlign = 'center';
+    launchPromptElement.style.color = '#ffffff';
+    launchPromptElement.style.fontFamily = 'Helvetica, Arial, sans-serif';
+    launchPromptElement.style.fontSize = '14px';
+    launchPromptElement.style.display = 'none'; // Start hidden
+    launchPromptElement.textContent = 'Launch? [L]'; // Placeholder text
+    // -------------------------------------------------
 
-    document.body.appendChild(container);
-    updateInventoryDisplay(); // Call initially to set text content
+    inventoryContainer.appendChild(seedBarContainer); // Add seed bar
+    inventoryContainer.appendChild(fuelBarContainer); // Add fuel bar
+    inventoryContainer.appendChild(launchPromptElement); // Add prompt to container
+
+    document.body.appendChild(inventoryContainer);
 }
 
 // Update Inventory Display including Launch Prompt & Fuel
 function updateInventoryDisplay() {
-    const seedsElement = document.getElementById('seeds-display');
-    const fuelElement = document.getElementById('fuel-display');
+    const seedsElement = document.getElementById('inventory-seeds');
+    const fuelElement = document.getElementById('inventory-fuel');
     const launchPromptElement = document.getElementById('launch-prompt');
+    // Get fill elements
+    const seedBarFill = document.getElementById('seed-bar-fill');
+    const fuelBarFill = document.getElementById('fuel-bar-fill');
 
-    if (seedsElement) {
+    if (seedsElement && seedBarFill) {
         seedsElement.textContent = `Seeds: ${inventory.seeds} / ${config.MAX_SEEDS}`;
+        // Update seed bar width
+        const seedPercent = (inventory.seeds / config.MAX_SEEDS) * 100;
+        seedBarFill.style.width = `${Math.max(0, Math.min(100, seedPercent))}%`;
     }
-    if (fuelElement) {
-        // Format fuel nicely, maybe only show integer part
+    if (fuelElement && fuelBarFill) {
         fuelElement.textContent = `Fuel: ${Math.floor(inventory.fuel)} / ${config.MAX_FUEL}`;
+        // Update fuel bar width
+        const fuelPercent = (inventory.fuel / config.MAX_FUEL) * 100;
+        fuelBarFill.style.width = `${Math.max(0, Math.min(100, fuelPercent))}%`;
     }
 
-    // Launch Prompt Update - This needs more context from main.js about player proximity and target
-    // We will update this logic later in main.js step
+    // Launch Prompt Update (Keep existing basic logic here, main logic is in main.js)
     if (launchPromptElement) {
-         // Placeholder - logic will move to main.js
-        launchPromptElement.style.display = 'none'; 
-        // Example of what it might show (needs seed/fuel cost calculated in main):
-        // launchPromptElement.textContent = `Launch ${numSeeds} seeds (Cost: ${fuelCost} Fuel)? [Space]`;
+         // Visibility is controlled by main.js, but we could update text content here if needed
+        // For now, leave it as is.
     }
 }
 

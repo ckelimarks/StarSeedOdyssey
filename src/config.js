@@ -4,6 +4,7 @@ export const ACCELERATION = 50; // Rate of acceleration
 export const BOOST_MAX_VELOCITY = 60; // NEW: Max speed when boosting
 export const BOOST_ACCELERATION = 100; // NEW: Acceleration when boosting
 export const BOOST_COOLDOWN_DURATION = 10.0; // NEW: Seconds before boost can be used again
+export const BOOST_MAX_DURATION = 3.0; // NEW: Max time boost can be active (seconds)
 export const FRICTION = 0.98; // <<< MUST be less than 1 for friction
 export const POLE_THRESHOLD = 1e-8;
 
@@ -18,7 +19,7 @@ export const GEM_SIZE = 0.8;
 export const STAR_RADIUS = 80;
 
 // Resource Constants (previously Gem Interaction)
-export const INITIAL_SEEDS = 3; // Starting seed count
+export const INITIAL_SEEDS = 0; // Changed from 3 to start with 0 seeds
 export const MAX_SEEDS = 10; // Maximum seed capacity
 export const INITIAL_SEED_GEMS = 15; // Number of visual seed items to spawn initially
 export const SEED_GEM_COLOR = 0x00ff00; // Color for visual seed items
@@ -133,7 +134,6 @@ export const JUMP_GRAVITY = -19.0; // Gravity affecting the jump (Increased magn
 export const BOOST_JUMP_GRAVITY = -10.0; // STRONGER gravity when boosting during a jump (Reduced magnitude from -25.0)
 export const BOOST_JUMP_INITIAL_VELOCITY_MULTIPLIER = 0.7; // Reduce initial jump velocity if boosting (Increased from 0.5)
 export const BOOST_JUMP_ACCELERATION_MULTIPLIER = 0.6; // Reduce horizontal boost acceleration while jumping (NEW)
-export const BOOST_JUMP_MAX_VELOCITY_MULTIPLIER = 0.4; // Reduce max horizontal speed while boost jumping (NEW)
 // -------------------
 
 // --- Boost Trail --- (NEW)

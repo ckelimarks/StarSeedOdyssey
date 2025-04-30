@@ -97,21 +97,42 @@ function updateBoostMeterUI() {
     }
 
     const now = performance.now();
-    const timeSinceLastBoost = (now - window.playerState.lastBoostTime) / 1000;
-    const cooldownDuration = config.BOOST_COOLDOWN_DURATION;
-    
-    if (timeSinceLastBoost >= cooldownDuration) {
-        boostMeterFillElement.style.width = '100%';
-        boostStatusElement.textContent = 'Ready';
-        boostStatusElement.style.color = '#00ff88'; // Ready color
-    } else {
-        const cooldownProgress = timeSinceLastBoost / cooldownDuration;
-        const fillPercentage = cooldownProgress * 100;
+    const playerState = window.playerState; // Get reference
+
+    // Check if currently boosting (by checking if boostStartTime is set)
+    if (playerState.boostStartTime > 0) {
+        // --- Currently Boosting: Show Remaining Duration ---
+        const boostElapsedTime = (now - playerState.boostStartTime) / 1000;
+        const remainingDuration = Math.max(0, config.BOOST_MAX_DURATION - boostElapsedTime);
+        const fillPercentage = (remainingDuration / config.BOOST_MAX_DURATION) * 100;
+
         boostMeterFillElement.style.width = `${fillPercentage}%`;
+        boostMeterFillElement.style.backgroundColor = '#00aaff'; // Active boost color (blue)
+        boostStatusElement.textContent = `Boost: ${remainingDuration.toFixed(1)}s`;
+        boostStatusElement.style.color = 'white'; 
+
+    } else {
+        // --- Not Boosting: Show Cooldown Progress ---
+        const timeSinceLastBoost = (now - playerState.lastBoostTime) / 1000;
+        const cooldownDuration = config.BOOST_COOLDOWN_DURATION;
         
-        const timeLeft = cooldownDuration - timeSinceLastBoost;
-        boostStatusElement.textContent = `Wait ${timeLeft.toFixed(1)}s`;
-        boostStatusElement.style.color = '#ffcc00'; // Cooldown color
+        if (timeSinceLastBoost >= cooldownDuration) {
+            // Cooldown complete
+            boostMeterFillElement.style.width = '100%';
+            boostMeterFillElement.style.backgroundColor = '#00ff88'; // Ready color (green)
+            boostStatusElement.textContent = 'Ready';
+            boostStatusElement.style.color = 'black'; // Text color when ready
+        } else {
+            // Still on cooldown
+            const cooldownProgress = timeSinceLastBoost / cooldownDuration;
+            const fillPercentage = cooldownProgress * 100;
+            boostMeterFillElement.style.width = `${fillPercentage}%`;
+            boostMeterFillElement.style.backgroundColor = '#888888'; // Cooldown color (grey)
+            
+            const timeLeft = cooldownDuration - timeSinceLastBoost;
+            boostStatusElement.textContent = `Wait ${timeLeft.toFixed(1)}s`;
+            boostStatusElement.style.color = '#ffcc00'; // Cooldown text color (yellow)
+        }
     }
 }
 // --- END NEW Boost Meter UI ---
@@ -305,7 +326,7 @@ async function init() {
         seedBankElement.style.bottom = '60px';
         seedBankElement.style.left = '10px';
         seedBankElement.style.color = 'white';
-        seedBankElement.style.fontFamily = 'Arial, sans-serif';
+        seedBankElement.style.fontFamily = 'Helvetica, Arial, sans-serif';
         seedBankElement.style.fontSize = '14px';
         seedBankElement.style.textShadow = '1px 1px 2px black';
         seedBankElement.textContent = 'Target Seeds: 0 / 0'; // Initial text
@@ -319,6 +340,7 @@ async function init() {
         terraformButton.style.padding = '8px 12px';
         terraformButton.style.border = 'none';
         terraformButton.style.borderRadius = '4px';
+        terraformButton.style.fontFamily = 'Helvetica, Arial, sans-serif';
         terraformButton.addEventListener('click', handleTerraformClick);
         updateTerraformButton(false, 'Infernia'); // Initial state (disabled)
         document.body.appendChild(terraformButton);
@@ -333,7 +355,7 @@ async function init() {
         missionStatusElement.style.bottom = '10px'; // Positioned at the very bottom
         missionStatusElement.style.left = '10px';
         missionStatusElement.style.color = '#ffcc00'; // Yellow/gold color
-        missionStatusElement.style.fontFamily = 'Arial, sans-serif';
+        missionStatusElement.style.fontFamily = 'Helvetica, Arial, sans-serif';
         missionStatusElement.style.fontSize = '16px';
         missionStatusElement.style.fontWeight = 'bold';
         missionStatusElement.style.textShadow = '1px 1px 2px black';
@@ -369,6 +391,7 @@ async function init() {
         boostStatusElement.style.justifyContent = 'center';
         boostStatusElement.style.color = 'white';
         boostStatusElement.style.fontSize = '12px';
+        boostStatusElement.style.fontFamily = 'Helvetica, Arial, sans-serif';
         boostStatusElement.style.textShadow = '1px 1px 1px black';
 
         boostMeterContainer.appendChild(boostMeterFillElement);
@@ -382,6 +405,7 @@ async function init() {
         debugFillButton.style.position = 'absolute';
         debugFillButton.style.top = '60px';
         debugFillButton.style.right = '10px';
+        debugFillButton.style.fontFamily = 'Helvetica, Arial, sans-serif';
             debugFillButton.addEventListener('click', handleDebugFillResources);
         document.body.appendChild(debugFillButton);
 
@@ -390,6 +414,7 @@ async function init() {
         debugInstantTerraformButton.style.position = 'absolute';
         debugInstantTerraformButton.style.top = '90px';
         debugInstantTerraformButton.style.right = '10px';
+        debugInstantTerraformButton.style.fontFamily = 'Helvetica, Arial, sans-serif';
             debugInstantTerraformButton.addEventListener('click', handleDebugInstantTerraform);
         document.body.appendChild(debugInstantTerraformButton);
 

@@ -88,6 +88,7 @@ function initPlayer(scene, homePlanet, audioListener) {
         // --- NEW Boost State ---
         // Initialize so boost is available immediately
         lastBoostTime: performance.now() - (config.BOOST_COOLDOWN_DURATION * 1000 + 100), 
+        boostStartTime: 0, // ADDED: Timestamp when current boost started
         isRiseSoundPlaying: false, // Is the continuous rise sound playing?
         wasBoostingLastFrame: false, // Track boost state change for burst sound
         // --- Re-add Jump State ---
@@ -394,8 +395,17 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     } 
     // else: wantsToBoost is false -> remain false
 
-    // --- END REVISED Boost Logic ---
-    
+    // --- NEW: Check Boost Duration Limit ---
+    if (isBoosting && playerState.boostStartTime > 0) { // Only check if already boosting and start time is set
+        const boostElapsedTime = (now - playerState.boostStartTime) / 1000;
+        if (boostElapsedTime > config.BOOST_MAX_DURATION) {
+            console.log(`[BOOST] Duration limit (${config.BOOST_MAX_DURATION}s) reached. Forcing boost off.`);
+            isBoosting = false; // Force boost off
+            // We'll handle sound stop and cooldown start below in the standard boost logic
+        }
+    }
+    // -------------------------------------
+
     // Apply acceleration and friction to playerState.velocity
     if (accelerationDirection.lengthSq() > 0) {
         // Use boost constants if boosting is active
@@ -409,15 +419,8 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
             currentAcceleration = config.ACCELERATION;
         }
 
-        // Calculate Max Velocity, reducing if boost-jumping
-        let currentMaxVelocity;
-        if (isBoosting) {
-            currentMaxVelocity = playerState.isJumping
-                ? config.BOOST_MAX_VELOCITY * config.BOOST_JUMP_MAX_VELOCITY_MULTIPLIER
-                : config.BOOST_MAX_VELOCITY;
-        } else {
-            currentMaxVelocity = config.MAX_VELOCITY;
-        }
+        // Calculate Max Velocity (REMOVED boost-jump reduction logic)
+        const currentMaxVelocity = isBoosting ? config.BOOST_MAX_VELOCITY : config.MAX_VELOCITY;
         
         playerState.velocity.add(accelerationDirection.multiplyScalar(currentAcceleration * deltaTime));
         if (playerState.velocity.length() > currentMaxVelocity) {
@@ -435,12 +438,11 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
 
     // --- REVISED Boost Sound & Cooldown Trigger Logic ---
     if (isBoosting) {
-        // console.log("[BOOST DEBUG] Entering isBoosting block (Sounds/FX)."); // Can remove this inner log now
         if (!playerState.wasBoostingLastFrame) {
             // Boost just started this frame
             playBoostBurstSound(playerMesh); 
-            // DO NOT START COOLDOWN HERE
-            console.log("[BOOST] Boost Activated!");
+            playerState.boostStartTime = now; // <<< Record boost start time
+            console.log("[BOOST] Boost Activated! Duration timer started.");
         }
         if (!playerState.isRiseSoundPlaying) {
             // Start the rise sound if not already playing
@@ -450,15 +452,15 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     } else {
         // Not boosting THIS frame
         if (playerState.wasBoostingLastFrame) {
-            // Boost just STOPPED this frame
-            if (playerState.isRiseSoundPlaying) { // Check just in case
+            // Boost just STOPPED this frame (either by key release or duration limit)
+            if (playerState.isRiseSoundPlaying) { 
                  stopBoostRiseSound();
                  playerState.isRiseSoundPlaying = false;
             }
-            playerState.lastBoostTime = now; // <<<<<< START COOLDOWN NOW >>>>>>
+            playerState.lastBoostTime = now; // Start cooldown
+            playerState.boostStartTime = 0; // Reset boost start time
             console.log("[BOOST] Boost Deactivated. Cooldown started.");
         }
-        // else: was already not boosting, do nothing special
     }
     // --- END Boost Sound & Cooldown Logic ---
     
