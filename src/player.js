@@ -8,7 +8,9 @@ import {
     setRollingSoundVolume,
     playBoostBurstSound,
     playBoostRiseSound,
-    stopBoostRiseSound
+    stopBoostRiseSound,
+    playPlayerJumpSound,
+    playPlayerLandSound // ADDED Land Sound Import
 } from './resources.js'; // Import sound functions
 import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader.js'; // Use full URL
 
@@ -476,6 +478,9 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
         playerState.isJumping = true;
         playerState.isGrounded = false; // Player is no longer grounded
         keyState[' '] = false; // Consume jump input
+        
+        playPlayerJumpSound();
+        
         console.log(`[JUMP] Jump initiated! Initial VVel: ${initialVelocity.toFixed(2)} (Boosting: ${isBoostingAtJumpStart})`); // Debug log
     }
     // -------------------------------------------------------
@@ -594,6 +599,7 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
         playerState.isJumping = false;
         playerState.verticalVelocity = 0;
         playerState.isGrounded = true;
+        playPlayerLandSound(); // <<< PLAY LAND SOUND HERE >>>
         currentDistance = targetDistance; // Force snap distance for clamping
     } else if (!playerState.isJumping) {
         // Ensure grounded state if not jumping (e.g., initial state or sliding)

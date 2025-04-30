@@ -36,6 +36,15 @@ let fuelPickupSound1 = null; // Sound for fuel pickup
 // let seedAccentSound = null; // REMOVED: Additional sound for seed pickup
 let boostBurstSound = null; // NEW
 let boostRiseSound = null;  // NEW
+let palMovementSound = null; // NEW: For the pal
+let palArrivalSound = null; // NEW: For pal arrival
+let playerJumpSound = null; // NEW: For player jump
+let playerLandSound = null; // NEW: For player landing
+let inventoryFullSound = null; // NEW: For inventory full
+let terraformReadySound = null; // NEW: For terraform ready
+
+// --- Cooldown Tracking ---
+let lastPalArrivalSoundTime = 0;
 
 // Array to track collected seeds for regeneration
 const collectedSeedsQueue = [];
@@ -363,7 +372,6 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
 
             // --- Generate Seeds ONLY AFTER tree model is loaded ---
             console.log('Generating seed items using loaded tree model...');
-            // Moved the seed generation here!
     generateVisualResources(config.INITIAL_SEED_GEMS, config.SEED_GEM_COLOR, 'seeds', seedGems, homePlanet, planetsState);
             // ------------------------------------------------------
 
@@ -710,21 +718,31 @@ function updateResources(scene, playerSphere, homePlanet, audioListener, deltaTi
 
             if (distanceToPlayer < requiredDistance) {
                 if (itemGroup.type === 'fuel') {
-                    // Original Fuel Collection Logic
-                    if (inventory.fuel < config.MAX_FUEL) {
+                    // Check if already full before collecting
+                    const wasFuelFull = inventory.fuel >= config.MAX_FUEL;
+                    if (!wasFuelFull) {
                         inventory.fuel = Math.min(config.MAX_FUEL, inventory.fuel + config.FUEL_PER_PICKUP);
                         playFuelPickupSound();
                         updateInventoryDisplay();
                         spawnFuelParticles(itemGroup.gem.position);
                         scheduleItemRemoval(itemGroup, now, itemsToRemove);
+                        // Check if *now* full
+                        if (inventory.fuel >= config.MAX_FUEL) {
+                            playInventoryFullSound();
+                        }
                     }
                 } else if (itemGroup.type === 'seeds') {
-                     // Original Seed Collection Logic (without magnetism pull)
-                     if (inventory.seeds < config.MAX_SEEDS) {
+                     // Check if already full before collecting
+                     const wasSeedsFull = inventory.seeds >= config.MAX_SEEDS;
+                     if (!wasSeedsFull) {
                         inventory.seeds++;
                         playSeedPickupSound(); // Plays treefall sound
                         updateInventoryDisplay(); 
                         scheduleItemRemoval(itemGroup, now, itemsToRemove);
+                        // Check if *now* full
+                        if (inventory.seeds >= config.MAX_SEEDS) {
+                            playInventoryFullSound();
+                        }
                     }
                 }
             }
@@ -987,14 +1005,117 @@ function stopRollingSound() {
     }
 }
 
+// --- Pal Movement Sound Control Functions (Simplified for PositionalAudio) ---
+function startPalMovementSound() {
+    const sound = window.loadedSounds?.palMovementSound;
+    if (!sound) { console.warn("startPalMovementSound: sound object not loaded!"); return; }
+    if (!sound.buffer) { console.warn("startPalMovementSound: buffer is null!"); return; }
+    if (sound.isPlaying) { return; } // Don't restart if already playing
+    if (sound.context.state !== 'running') { console.warn(`startPalMovementSound: AudioContext not running! State: ${sound.context.state}`); return; }
+    
+    sound.setLoop(true);
+    // NOTE: Volume is now primarily controlled by distance + base volume set at load time.
+    // You could still use setVolume here to change the *base* volume dynamically if needed.
+    sound.play();
+    console.log("[Pal Sound] Started Pal Movement Sound (Positional)"); 
+}
+
+// Removed setPalMovementSoundLoop - loop set on start
+// Removed setPalMovementSoundVolume - volume is positional
+
+function stopPalMovementSound() {
+    const sound = window.loadedSounds?.palMovementSound;
+    if (!sound) { console.warn("stopPalMovementSound: sound object not loaded!"); return; }
+    
+    if (sound.isPlaying) {
+        sound.stop(); 
+        console.log("[Pal Sound] Stopped Pal Movement Sound (Positional)"); 
+    } 
+}
+// --- END Pal Movement Sound Control Functions ---
+
+// --- Play Pal Arrival Sound (NEW - With Cooldown) ---
+function playPalArrivalSound() {
+    if (!palArrivalSound) { console.warn("playPalArrivalSound: sound object is null!"); return; }
+    if (!palArrivalSound.buffer) { console.warn("playPalArrivalSound: buffer is null!"); return; }
+    
+    const now = performance.now();
+    if ((now - lastPalArrivalSoundTime) / 1000 < config.PAL_ARRIVAL_SOUND_COOLDOWN) {
+        // console.log("[Pal Sound] Arrival sound cooldown active."); // Optional debug
+        return; // Exit if cooldown is active
+    }
+
+    if (palArrivalSound.isPlaying) {
+        palArrivalSound.stop(); 
+    } 
+    palArrivalSound.play();
+    lastPalArrivalSoundTime = now; // Update last played time
+    console.log("[Pal Sound] Played Pal Arrival Sound"); 
+}
+// --- END Play Pal Arrival Sound ---
+
+// --- Play Player Jump Sound (NEW) ---
+function playPlayerJumpSound() {
+    const sound = window.loadedSounds?.playerJumpSound;
+    if (!sound) { console.warn("playPlayerJumpSound: sound object not loaded!"); return; }
+    if (!sound.buffer) { console.warn("playPlayerJumpSound: buffer is null!"); return; }
+    if (sound.isPlaying) {
+        sound.stop(); // Restart if somehow still playing
+    }
+    sound.play();
+    console.log("[Player Sound] Played Jump Sound"); // Debug Log
+}
+// --- END Play Player Jump Sound ---
+
+// --- Play Player Land Sound (NEW) ---
+function playPlayerLandSound() {
+    const sound = window.loadedSounds?.playerLandSound;
+    if (!sound) { console.warn("playPlayerLandSound: sound object not loaded!"); return; }
+    if (!sound.buffer) { console.warn("playPlayerLandSound: buffer is null!"); return; }
+    if (sound.isPlaying) {
+        // Optional: Decide if restarting is needed. For a landing sound, maybe not.
+        // return; 
+        sound.stop(); // Let's restart it for now
+    }
+    sound.play();
+    console.log("[Player Sound] Played Land Sound"); // Debug Log
+}
+// --- END Play Player Land Sound ---
+
+// --- Play Inventory Full Sound (NEW) ---
+function playInventoryFullSound() {
+    const sound = window.loadedSounds?.inventoryFullSound;
+    if (!sound) { console.warn("playInventoryFullSound: sound object not loaded!"); return; }
+    if (!sound.buffer) { console.warn("playInventoryFullSound: buffer is null!"); return; }
+    if (sound.isPlaying) {
+        sound.stop(); // Restart if still playing from a rapid fill?
+    }
+    sound.play();
+    console.log("[Inventory Sound] Played Inventory Full Sound"); // Debug Log
+}
+// --- END Play Inventory Full Sound ---
+
+// --- Play Terraform Ready Sound (NEW) ---
+function playTerraformReadySound() {
+    const sound = window.loadedSounds?.terraformReadySound;
+    if (!sound) { console.warn("playTerraformReadySound: sound object not loaded!"); return; }
+    if (!sound.buffer) { console.warn("playTerraformReadySound: buffer is null!"); return; }
+    if (sound.isPlaying) {
+        sound.stop(); // Restart if needed?
+    }
+    sound.play();
+    console.log("[Terraform Sound] Played Terraform Ready Sound"); // Debug Log
+}
+// --- END Play Terraform Ready Sound ---
+
 // Function to load all audio assets and return a Promise
 function loadAudio(listener) {
-    return new Promise((resolve, reject) => { // Wrap in a Promise
-        audioListenerRef = listener; // Store listener reference
+    return new Promise((resolve, reject) => { 
+        audioListenerRef = listener; 
         const loader = new THREE.AudioLoader();
         let soundsLoaded = 0;
-        const totalSoundsToLoad = 8; // **UPDATE THIS COUNT** if you add/remove sounds
-        const loadedSounds = {}; // Object to store loaded sound references
+        const totalSoundsToLoad = 14; // <<< INCREMENTED total sound count
+        const loadedSounds = {}; 
 
         const checkAllLoaded = () => {
             soundsLoaded++;
@@ -1141,6 +1262,105 @@ function loadAudio(listener) {
             undefined, 
             (err) => onError('sfx/boost_rise.mp3', err)
         );
+
+        // --- Load Pal Movement Sound (CHANGED to PositionalAudio) ---
+        loader.load('sfx/pal/palmovement-sound.wav', 
+            (buffer) => {
+                palMovementSound = new THREE.PositionalAudio(audioListenerRef); // *** CHANGED ***
+                palMovementSound.setBuffer(buffer);
+                palMovementSound.setLoop(true); 
+                palMovementSound.setVolume(config.PAL_MOVE_SOUND_BASE_VOLUME); // Base volume at ref distance
+                palMovementSound.setRefDistance(config.PAL_SOUND_REF_DISTANCE); // *** ADDED ***
+                palMovementSound.setRolloffFactor(config.PAL_SOUND_ROLLOFF_FACTOR); // *** ADDED ***
+                loadedSounds.palMovementSound = palMovementSound; 
+                console.log("Pal movement sound loaded (Positional)."); 
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/pal/palmovement-sound.wav', err)
+        );
+        // -------------------------------------
+
+        // --- Load Pal Arrival Sound (remains the same) ---
+        loader.load('sfx/pal/yes.wav', 
+            (buffer) => {
+                palArrivalSound = new THREE.Audio(audioListenerRef); 
+                palArrivalSound.setBuffer(buffer);
+                palArrivalSound.setLoop(false);
+                palArrivalSound.setVolume(0.9); // Slightly louder maybe?
+                loadedSounds.palArrivalSound = palArrivalSound; // Store reference
+                console.log("Pal arrival sound loaded."); 
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/pal/yes.wav', err)
+        );
+        // -----------------------------------
+
+        // --- Load Player Jump Sound (NEW) ---
+        loader.load('sfx/jump-sound.mp3', 
+            (buffer) => {
+                playerJumpSound = new THREE.Audio(audioListenerRef); 
+                playerJumpSound.setBuffer(buffer);
+                playerJumpSound.setLoop(false);
+                playerJumpSound.setVolume(0.6); // Adjust volume as needed
+                loadedSounds.playerJumpSound = playerJumpSound; // Store reference
+                console.log("Player jump sound loaded."); 
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/jump-sound.mp3', err)
+        );
+        // -----------------------------------
+
+        // --- Load Player Land Sound (NEW) ---
+        loader.load('sfx/skid-sound.mp3', 
+            (buffer) => {
+                playerLandSound = new THREE.Audio(audioListenerRef); 
+                playerLandSound.setBuffer(buffer);
+                playerLandSound.setLoop(false);
+                playerLandSound.setVolume(0.35); // Adjust volume as needed (Reduced from 0.7)
+                loadedSounds.playerLandSound = playerLandSound; // Store reference
+                console.log("Player land sound loaded."); 
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/skid-sound.mp3', err)
+        );
+        // -----------------------------------
+
+        // --- Load Inventory Full Sound (NEW) ---
+        loader.load('sfx/collect-sound.wav', 
+            (buffer) => {
+                inventoryFullSound = new THREE.Audio(audioListenerRef); 
+                inventoryFullSound.setBuffer(buffer);
+                inventoryFullSound.setLoop(false);
+                inventoryFullSound.setVolume(0.7); // Adjust volume as needed
+                loadedSounds.inventoryFullSound = inventoryFullSound; // Store reference
+                console.log("Inventory full sound loaded."); 
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/collect-sound.mp3', err)
+        );
+        // -----------------------------------
+
+        // --- Load Terraform Ready Sound (NEW) ---
+        loader.load('sfx/terraform-ready-sound.mp3', 
+            (buffer) => {
+                terraformReadySound = new THREE.Audio(audioListenerRef); 
+                terraformReadySound.setBuffer(buffer);
+                terraformReadySound.setLoop(false);
+                terraformReadySound.setVolume(0.8); // Adjust volume as needed
+                loadedSounds.terraformReadySound = terraformReadySound; // Store reference
+                console.log("Terraform ready sound loaded."); 
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/terraform-ready-sound.mp3', err)
+        );
+        // -----------------------------------
+
     }); // End of Promise wrapper
 }
 
@@ -1233,6 +1453,16 @@ export {
     stopRollingSound,
     playBoostBurstSound, 
     playBoostRiseSound,
-    stopBoostRiseSound
+    stopBoostRiseSound,
+    // Simplified Pal Sound Control
+    startPalMovementSound,
+    stopPalMovementSound,
+    // Arrival Sound
+    playPalArrivalSound, 
+    // Player Sounds (NEW)
+    playPlayerJumpSound,
+    playPlayerLandSound,
+    playInventoryFullSound,
+    playTerraformReadySound // NEW Export
     // Add any other functions from this module that need exporting
 }; 

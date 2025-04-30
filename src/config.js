@@ -121,6 +121,22 @@ export const PLAYER_SPEED = 0.15;
 export const PLAYER_MODEL_SCALE = 7.0; // Scale factor for the player model (Increased from 5.0)
 export const PLAYER_ROTATION_SPEED = Math.PI * 2; // Radians per second (e.g., 360 degrees/sec)
 
+// --- Pal Configuration (NEW) ---
+export const PAL_ACCELERATION = ACCELERATION * 0.27; // Reduced further from 0.7
+export const PAL_MAX_VELOCITY = MAX_VELOCITY * 0.5; // Reduced further from 0.8
+export const PAL_FRICTION = FRICTION; // Keep friction same for now
+export const PAL_FOLLOW_DISTANCE = 3.5; // Increase slightly
+export const PAL_STOPPING_DISTANCE = 2.0; // NEW: Distance at which pal stops moving towards player
+export const PAL_ROTATION_SPEED = PLAYER_ROTATION_SPEED * 0.5; // Slower turning
+export const PAL_ROCK_ANGLE = Math.PI / 32; // Max angle for rocking (radians, ~5.6 degrees)
+export const PAL_ROCK_SPEED = 8.0; // Speed of the rocking motion (Increased from 3.0)
+export const PAL_MOVE_SOUND_BASE_VOLUME = 0.8; // Base volume for pal movement (at ref distance)
+export const PAL_SOUND_STOP_THRESHOLD_SQ = 0.5 * 0.5; // Speed squared threshold to start fading out sound (0.25)
+export const PAL_SOUND_REF_DISTANCE = 2.5; // NEW: Distance for base volume (Reduced from 3.0)
+export const PAL_SOUND_ROLLOFF_FACTOR = 0.3; // NEW: How quickly sound fades with distance
+export const PAL_ARRIVAL_SOUND_COOLDOWN = 3.0; // NEW: Minimum seconds between arrival sounds
+// ----------------------------
+
 // Planet Configuration
 export const NUM_PLANETS = 3;
 export const SYSTEM_RADIUS = 200; // Radius of the circular path planets orbit on 

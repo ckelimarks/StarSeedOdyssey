@@ -13,9 +13,20 @@ import * as config from './config.js';
 import { initScene } from './scene.js';
 import { initPlayer, updatePlayer, updatePathTrail, keyState } from './player.js';
 import { initPlanets, updateOrbits } from './planets.js';
-import { initResources, updateResources, inventory, updateInventoryDisplay, createInventoryUI, playRocketLaunchSound, loadAudio } from './resources.js';
+import { 
+    initResources, 
+    updateResources, 
+    inventory, 
+    updateInventoryDisplay, 
+    createInventoryUI, 
+    playRocketLaunchSound, 
+    loadAudio,
+    playTerraformReadySound, 
+    playInventoryFullSound // <<< Import Inventory Full Sound Player
+} from './resources.js';
 import { initRocket, updateRocket, launchRocket, isRocketActive, isRocketStationed, placeRocketOnPad, hideRocketFromPad, rocketMesh } from './rocket.js';
 import { updateCamera } from './camera.js';
+import { initPal, updatePal } from './pal.js'; // ADDED Pal import
 
 console.log("main.js: Script start");
 
@@ -47,8 +58,13 @@ let launchPromptElement = null;
 let missionStatusElement = null; // NEW: Reference for mission status message
 let debugFillButton = null; // NEW: Reference for debug button
 let debugInstantTerraformButton = null; // NEW: Reference for instant terraform button
+let debugEnableTerraformButton = null; // NEW: Reference for enable terraform button debug
 let boostMeterFillElement = null; // NEW
 let boostStatusElement = null; // NEW
+
+// --- NEW: Pal State ---
+let isPalInitialized = false;
+// -------------------
 
 // Temp vectors for calculations
 const _tempPlayerPos = new THREE.Vector3();
@@ -79,11 +95,51 @@ function updateSeedBankUI(planetName, delivered, required) {
 
 function updateTerraformButton(enabled, planetName) {
     if (terraformButton) {
-        terraformButton.disabled = !enabled;
+        // --- NEW: Detailed Logging ---
+        const currentDisabledState = terraformButton.disabled;
+        console.log(`[Terraform Btn Update] Called for ${planetName}. Requested enabled: ${enabled}. Current button disabled state: ${currentDisabledState}`);
+        // ---------------------------
+
+        // --- Play sound and trigger pulse on transition to enabled ---
+        if (currentDisabledState === true && enabled === true) { // Use stored current state
+            console.log(`[Terraform Btn Update] State Transition: DISABLED -> ENABLED. Adding 'pulse-ready' class.`);
+            playTerraformReadySound();
+
+            // Add pulse class
+            terraformButton.classList.add('pulse-ready');
+
+            // Remove class after animation finishes (3 iterations)
+            // Use 'animationend' event listener with { once: true }
+            const handleAnimationEnd = () => {
+                // --- NEW: Check if class still exists before removing ---
+                if (terraformButton.classList.contains('pulse-ready')) {
+                    console.log("[Terraform Btn Update] 'animationend' event fired. Removing 'pulse-ready' class.");
+                    terraformButton.classList.remove('pulse-ready');
+                } else {
+                     console.log("[Terraform Btn Update] 'animationend' event fired, but 'pulse-ready' class was already removed.");
+                }
+            };
+            // Remove any previous listener before adding a new one to be safe
+            terraformButton.removeEventListener('animationend', handleAnimationEnd); 
+            terraformButton.addEventListener('animationend', handleAnimationEnd, { once: true }); 
+
+        } else if (enabled === true && currentDisabledState === false) { // Use stored current state
+             console.log(`[Terraform Btn Update] State Check: Button ALREADY ENABLED. No pulse.`);
+        } else if (enabled === false) {
+             console.log(`[Terraform Btn Update] State Check: Button requested DISABLED.`);
+             // Ensure pulse class is removed if button becomes disabled during pulse
+             if (terraformButton.classList.contains('pulse-ready')) {
+                 console.log(`[Terraform Btn Update] Disabling button while pulsing. Removing 'pulse-ready' class.`);
+                 terraformButton.classList.remove('pulse-ready');
+                 // We might also want to remove the specific animationend listener added earlier
+                 // but since it's {once: true}, it might clean itself up. Let's leave it for now.
+             }
+        }
+        // -------------------------------------------
+        terraformButton.disabled = !enabled; // State change happens *after* the check
         terraformButton.textContent = `Terraform ${planetName}`;
         terraformButton.style.cursor = enabled ? 'pointer' : 'default';
-        // Maybe change style when enabled
-        terraformButton.style.backgroundColor = enabled ? '#4CAF50' : '#cccccc'; // Green when enabled
+        terraformButton.style.backgroundColor = enabled ? '#4CAF50' : '#cccccc';
         terraformButton.style.color = enabled ? 'white' : '#666666';
     } else {
         console.warn("Terraform Button element not found.");
@@ -177,6 +233,7 @@ function handleDebugFillResources() {
     inventory.seeds = config.MAX_SEEDS;
     inventory.fuel = config.MAX_FUEL;
     updateInventoryDisplay(); // Update the UI
+    playInventoryFullSound(); // <<< Play sound here
 }
 
 // --- UPDATED: Debug Terraform now triggers the normal sequence ---
@@ -217,6 +274,14 @@ function handleDebugInstantTerraform() {
         console.error(`DEBUG Instant Terraform Error: Planet ${targetPlanetName} not found.`);
     }
     */
+}
+
+// --- NEW: Debug Action to Enable Terraform Button ---
+function handleDebugEnableTerraformButton() {
+    const targetPlanetName = 'Infernia'; // Hardcoded target
+    console.log(`DEBUG: Forcefully enabling Terraform button for ${targetPlanetName}...`);
+    // Directly call the update function to enable it, triggering sound/pulse if needed
+    updateTerraformButton(true, targetPlanetName); 
 }
 
 // --- Initialize the application ---
@@ -418,6 +483,16 @@ async function init() {
             debugInstantTerraformButton.addEventListener('click', handleDebugInstantTerraform);
         document.body.appendChild(debugInstantTerraformButton);
 
+        // NEW Debug Button: Enable Terraform
+        debugEnableTerraformButton = document.createElement('button');
+        debugEnableTerraformButton.textContent = 'Debug: Enable Terraform Btn';
+        debugEnableTerraformButton.style.position = 'absolute';
+        debugEnableTerraformButton.style.top = '120px'; // Position below other debug buttons
+        debugEnableTerraformButton.style.right = '10px';
+        debugEnableTerraformButton.style.fontFamily = 'Helvetica, Arial, sans-serif';
+        debugEnableTerraformButton.addEventListener('click', handleDebugEnableTerraformButton);
+        document.body.appendChild(debugEnableTerraformButton);
+
         console.log("Main INIT: UI created.");
 
         // --- Step 7.5: Place Rocket on Pad Initially ---
@@ -454,6 +529,13 @@ function animate() {
     const deltaTime = clock.getDelta();
     const now = performance.now();
 
+    // --- Initialize Pal (once player is ready) ---
+    if (!isPalInitialized && window.playerState?.mesh && homePlanet) {
+        initPal(window.playerState.mesh, homePlanet); // Pass player mesh and parent (planet)
+        isPalInitialized = true;
+    }
+    // --------------------------------------------
+
     // --- Update Game Logic ---
     updateOrbits(planetsState, deltaTime);
     
@@ -466,12 +548,15 @@ function animate() {
     // ------------------------------------
     
     updatePlayer(deltaTime, camera, homePlanet, planetsState);
-    updatePathTrail(window.playerState.mesh, homePlanet);
+    if (typeof updatePathTrail === 'function') { 
+        updatePathTrail(window.playerState?.mesh, homePlanet);
+    }
     // Check if player mesh exists before updating resources (it's loaded async)
     if (window.playerState?.mesh) {
         updateResources(scene, window.playerState.mesh, homePlanet, audioListener, deltaTime);
     }
     const landingInfo = updateRocket(deltaTime);
+    updatePal(deltaTime, window.playerState?.mesh, homePlanet); // Update call with args
 
     // --- Handle Terraforming Color Lerp ---
     for (const planetName in isTerraforming) {
