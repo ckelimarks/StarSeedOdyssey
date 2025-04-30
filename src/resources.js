@@ -42,6 +42,11 @@ let playerJumpSound = null; // NEW: For player jump
 let playerLandSound = null; // NEW: For player landing
 let inventoryFullSound = null; // NEW: For inventory full
 let terraformReadySound = null; // NEW: For terraform ready
+let terraformSuccessSound = null; // NEW: For terraform success
+let themeMusic = null; // NEW: For theme music
+let slowdownSound = null; // NEW: For fuel depletion slowdown
+let slowdownSoundPlayStartTime = 0; // NEW: Track playback start time
+let slowdownFadeRafId = null; // NEW: Track requestAnimationFrame ID
 
 // --- Cooldown Tracking ---
 let lastPalArrivalSoundTime = 0;
@@ -1108,6 +1113,67 @@ function playTerraformReadySound() {
 }
 // --- END Play Terraform Ready Sound ---
 
+// --- NEW: Update Slowdown Fade Function (Internal) ---
+function updateSlowdownFade() {
+    if (!slowdownSound || !slowdownSound.buffer || slowdownSoundPlayStartTime === 0) {
+        slowdownFadeRafId = null; // Ensure loop stops if sound/buffer/start time is invalid
+        return;
+    }
+
+    const now = performance.now();
+    const elapsedTime = (now - slowdownSoundPlayStartTime) / 1000; // seconds
+    const duration = slowdownSound.buffer.duration;
+
+    if (elapsedTime >= duration) {
+        // Fade complete
+        slowdownSound.setVolume(0);
+        if (slowdownSound.isPlaying) {
+            slowdownSound.stop(); // Ensure it stops fully
+        }
+        slowdownSoundPlayStartTime = 0; // Reset start time
+        slowdownFadeRafId = null; // Clear RAF ID
+        console.log("[SOUND] Slowdown fade complete.");
+    } else {
+        // Still fading
+        const fadeProgress = elapsedTime / duration;
+        const currentVolume = config.SLOWDOWN_SOUND_BASE_VOLUME * (1.0 - fadeProgress); // Linear fade out
+        slowdownSound.setVolume(Math.max(0, currentVolume)); // Set volume, clamp at 0
+        
+        // Request next frame
+        slowdownFadeRafId = requestAnimationFrame(updateSlowdownFade);
+    }
+}
+// -------------------------------------------
+
+// --- Play Slowdown Sound Function (Modified) ---
+function playSlowdownSound() { 
+    if (slowdownSound && slowdownSound.buffer) {
+        // Cancel any previous fade loop
+        if (slowdownFadeRafId !== null) {
+            cancelAnimationFrame(slowdownFadeRafId);
+            slowdownFadeRafId = null;
+        }
+
+        // Stop if playing, reset volume, play, start fade
+        if (slowdownSound.isPlaying) {
+            slowdownSound.stop();
+        }
+        slowdownSound.setVolume(config.SLOWDOWN_SOUND_BASE_VOLUME); // Reset to base volume
+
+        if (slowdownSound.context.state === 'running') {
+            console.log("SOUND: Playing slowdown sound and starting fade.");
+            slowdownSound.play();
+            slowdownSoundPlayStartTime = performance.now(); // Record start time
+            slowdownFadeRafId = requestAnimationFrame(updateSlowdownFade); // Start fade update loop
+        } else {
+            console.warn("Cannot play slowdown sound - audio context not running.");
+        }
+    } else {
+        console.warn("Slowdown sound not loaded or buffer missing.");
+    }
+}
+// --- END Modified Slowdown Sound ---
+
 // Function to load all audio assets and return a Promise
 function loadAudio(listener) {
     return new Promise((resolve, reject) => { 
@@ -1393,6 +1459,38 @@ function loadAudio(listener) {
         );
         // -----------------------------------
 
+        // --- Load Theme Music (Add Back) ---
+        loader.load('sfx/theme_basic.mp3', 
+            (buffer) => {
+                themeMusic = new THREE.Audio(audioListenerRef); 
+                themeMusic.setBuffer(buffer);
+                themeMusic.setLoop(true); 
+                themeMusic.setVolume(0.3); 
+                loadedSounds.themeMusicSound = themeMusic;
+                console.log("Theme music loaded."); 
+                checkAllLoaded();
+            }, 
+            undefined, // onProgress
+            (err) => onError('sfx/theme_basic.mp3', err)
+        );
+        // -----------------------------------
+
+        // --- Load Slowdown Sound (NEW) ---
+        loader.load('sfx/slowdown.mp3', 
+            (buffer) => {
+                slowdownSound = new THREE.Audio(audioListenerRef); 
+                slowdownSound.setBuffer(buffer);
+                slowdownSound.setLoop(false);
+                slowdownSound.setVolume(0.7); // Adjust volume as needed
+                loadedSounds.slowdownSound = slowdownSound; // Store reference
+                console.log("Slowdown sound loaded."); 
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/slowdown.mp3', err)
+        );
+        // -----------------------------------
+
     }); // End of Promise wrapper
 }
 
@@ -1535,7 +1633,8 @@ export {
     playTerraformReadySound, // NEW Export
     // --- Add new exports --- 
     playThemeMusic,
-    playTerraformSuccessSound
+    playTerraformSuccessSound,
+    playSlowdownSound
     // -----------------------
     // Add any other functions from this module that need exporting
 }; 

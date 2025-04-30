@@ -6,6 +6,7 @@ export const BOOST_ACCELERATION = 100; // NEW: Acceleration when boosting
 export const BOOST_COOLDOWN_DURATION = 10.0; // NEW: Seconds before boost can be used again
 export const BOOST_MAX_DURATION = 3.0; // NEW: Max time boost can be active (seconds)
 export const FRICTION = 0.98; // <<< MUST be less than 1 for friction
+export const OUT_OF_FUEL_FRICTION = 0.94; // NEW: Stronger friction when fuel is depleted (Closer to 1.0 = gentler)
 export const POLE_THRESHOLD = 1e-8;
 
 // Path Trail Constants
@@ -36,7 +37,7 @@ export const MOSSY_LOG_SCALE = 1.2;
 export const MIN_DECOR_DISTANCE = 4.0; // Min distance between decorative items
 
 // Fuel Constants
-export const INITIAL_FUEL = 0; // Starting fuel units (Changed from 50)
+export const INITIAL_FUEL = 10; // Starting fuel units (Changed from 0)
 export const MAX_FUEL = 100; // Maximum fuel capacity
 export const INITIAL_FUEL_ITEMS = 20; // INCREASED from 10
 export const FUEL_ITEM_COLOR = 0xff0000; // Red color for fuel items
@@ -45,6 +46,10 @@ export const FUEL_CONSUMPTION_RATE = 2; // Fuel units consumed per second of thr
 export const THRUST_FORCE = 1.0; // Acceleration provided by thrust (Increased from 0.05) (UNUSED?)
 export const FUEL_PER_PICKUP = 10; // NEW: Fuel units gained per pickup item
 export const FUEL_COST_PER_SEED = 5; // NEW/Ensure: Fuel units required for each seed launched
+
+// NEW: Fuel Consumption Rates
+export const FUEL_CONSUMPTION_PER_SECOND_MOVE = 0.5; // Fuel units consumed per second of normal movement
+export const FUEL_CONSUMPTION_PER_SECOND_BOOST = 2.0; // Fuel units consumed per second while boosting
 
 // Terraforming Constants
 export const SEEDS_REQUIRED_TERRAFORM = 10; // Seeds needed to terraform a planet
@@ -110,6 +115,7 @@ export const pickupSoundSegments = [
 // NEW Rolling Sound Config
 export const ROLLING_SOUND_BASE_VOLUME = 1;
 export const ROLLING_SOUND_FADE_DURATION = 1.0; // Duration in seconds (Increased from 0.5)
+export const SLOWDOWN_SOUND_BASE_VOLUME = 0.7; // NEW: Base volume for slowdown sound
 
 // Add other constants as needed 
 

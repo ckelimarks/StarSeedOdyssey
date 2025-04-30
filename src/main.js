@@ -842,6 +842,29 @@ function animate() {
     const landingInfo = updateRocket(deltaTime);
     updatePal(deltaTime, window.playerState?.mesh, homePlanet); // Update call with args
 
+    // --- NEW: Handle Fuel Consumption ---
+    if (window.playerState && inventory.fuel > 0) {
+        const playerState = window.playerState;
+        let fuelConsumedThisFrame = 0;
+        const speedSq = playerState.velocity.lengthSq();
+        const movementThresholdSq = 0.1 * 0.1; // Only consume if moving noticeably
+
+        if (playerState.boostStartTime > 0) {
+            // Currently boosting
+            fuelConsumedThisFrame = config.FUEL_CONSUMPTION_PER_SECOND_BOOST * deltaTime;
+        } else if (speedSq > movementThresholdSq) {
+            // Moving normally
+            fuelConsumedThisFrame = config.FUEL_CONSUMPTION_PER_SECOND_MOVE * deltaTime;
+        }
+
+        if (fuelConsumedThisFrame > 0) {
+            inventory.fuel -= fuelConsumedThisFrame;
+            inventory.fuel = Math.max(0, inventory.fuel); // Clamp fuel to minimum 0
+            // UI will be updated later in the loop
+        }
+    }
+    // --- END NEW Fuel Consumption ---
+
     // --- Handle Terraforming Color Lerp ---
     for (const planetName in isTerraforming) {
         if (isTerraforming[planetName]) {

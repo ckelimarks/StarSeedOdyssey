@@ -3,14 +3,16 @@ import * as config from './config.js';
 import { createSphere } from './planets.js';
 import { 
     startRollingSound, 
-    stopRollingSound, 
+    stopRollingSound,
     setRollingSoundLoop, 
     setRollingSoundVolume,
     playBoostBurstSound,
     playBoostRiseSound,
     stopBoostRiseSound,
     playPlayerJumpSound,
-    playPlayerLandSound // ADDED Land Sound Import
+    playPlayerLandSound, // ADDED Land Sound Import
+    inventory, // << IMPORT inventory
+    playSlowdownSound // <<< IMPORT Slowdown Sound Player
 } from './resources.js'; // Import sound functions
 import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader.js'; // Use full URL
 
@@ -110,8 +112,9 @@ function initPlayer(scene, homePlanet, audioListener) {
         // --- Re-add Jump State ---
         isJumping: false,
         verticalVelocity: 0.0,
-        isGrounded: true
+        isGrounded: true,
         // -----------------------
+        wasFueledLastFrame: true // NEW: Track fuel state for sound trigger
     };
 
     // Player initial position is LOCAL to the home planet
@@ -318,37 +321,58 @@ function handleKeyUp(event) {
 }
 
 // --- Player Update Function (Called from main loop) ---
-function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
-    const playerState = window.playerState; // Access global player state
-    
-    // Early exit checks with warnings
-    if (!playerState) { 
-        // console.warn('updatePlayer exiting: playerState is not available on window yet.');
-        return; // Exit if player state isn't ready
+export function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
+    if (!playerState.mesh || !homePlanet || !homePlanet.geometry?.parameters?.radius) {
+        // console.log("Player update skipped: mesh or planet not ready");
+        return; // Exit if player mesh isn't loaded yet or planet data missing
     }
-    const playerMesh = playerState.mesh;
-    if (!playerMesh) {
-        // console.warn('updatePlayer exiting: playerState.mesh is null or undefined (model likely still loading).');
-        return; // Exit if mesh isn't loaded
-    }
-     if (!homePlanet) {
-        // console.warn('updatePlayer exiting: homePlanet is missing.');
-         return;
-     }
-     if (!planetsState) {
-        // console.warn('updatePlayer exiting: planetsState is missing.');
-         return;
-     }
 
+    const now = performance.now(); // Get current time for boost calculations
     const homePlanetRadius = homePlanet.geometry.parameters.radius;
-    if (!homePlanetRadius) {
-        console.error("updatePlayer: Missing radius from home planet!");
-        return;
-    }
+    const playerMesh = playerState.mesh;
+    const playerVelocity = playerState.velocity;
 
-    // Get current world positions
+    // --- IMMEDIATE Fuel Check & Braking/Boost Cancel ---
+    const hasFuel = inventory.fuel > 1e-6; // Use small threshold to avoid floating point issues
+    if (!hasFuel) {
+        // --- Play Sound on Transition ---
+        if (playerState.wasFueledLastFrame) {
+            playSlowdownSound(); // Play sound when fuel first runs out
+            stopRollingSound(); // <<< Stop rolling sound explicitly
+            playerState.isRollingSoundPlaying = false; // Ensure state reflects stop
+            playerState.isRollingSoundFadingOut = false;
+        }
+        // ------------------------------
+
+        // Fuel is depleted: Apply brakes and cancel boost
+        // playerVelocity.multiplyScalar(0.4); // REMOVED immediate velocity reduction
+        if (playerState.boostStartTime > 0) {
+            console.log("[FUEL DEPLETED] Cancelling active boost.");
+            playerState.boostStartTime = 0; // Stop boost
+            playerState.lastBoostTime = now; // Trigger cooldown immediately
+            if (playerState.isRiseSoundPlaying) {
+                stopBoostRiseSound(); // Stop boost sound
+                playerState.isRiseSoundPlaying = false;
+            }
+        }
+    }
+    // --- END IMMEDIATE Fuel Check ---
+
+    // --- Update wasFueledLastFrame state AFTER the check ---
+    playerState.wasFueledLastFrame = hasFuel;
+    // -----------------------------------------------------
+
+    // --- Fuel Check & Speed Adjustment ---
+    const currentMaxVelocity = hasFuel ? config.MAX_VELOCITY : config.MAX_VELOCITY * 0.4; // Reduce to 40% if no fuel
+    const currentAcceleration = hasFuel ? config.ACCELERATION : config.ACCELERATION * 0.4; // Reduce acceleration to 40% too
+    const currentBoostMaxVelocity = hasFuel ? config.BOOST_MAX_VELOCITY : currentMaxVelocity; // No boost speed without fuel
+    const currentBoostAcceleration = hasFuel ? config.BOOST_ACCELERATION : currentAcceleration; // No boost accel without fuel
+    const canBoost = hasFuel && (now - playerState.lastBoostTime) > config.BOOST_COOLDOWN_DURATION * 1000 && playerState.boostStartTime === 0;
+    // -----------------------------------
+
+    // Get world positions
     playerMesh.getWorldPosition(_playerWorldPos);
-    homePlanet.getWorldPosition(_homePlanetWorldPos);
+    homePlanet.getWorldPosition(_homePlanetWorldPos); // Usually 0,0,0 but good practice
 
     // Calculate the up vector (normal to planet surface) using WORLD positions
     const planetUp = _vector3.copy(_playerWorldPos).sub(_homePlanetWorldPos).normalize();
@@ -377,31 +401,40 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     const tangentRight = new THREE.Vector3().crossVectors(planetUp, tangentForward).normalize();
     
     // --- Calculate Movement Delta (using playerState.velocity) --- 
-    let accelerationDirection = new THREE.Vector3();
+    let accelerationVector = new THREE.Vector3();
     let isMovingByKey = false; 
     if (keyState['ArrowUp']) { 
-        accelerationDirection.copy(tangentForward); 
+        // --- Apply currentAcceleration --- 
+        accelerationVector.addScaledVector(tangentForward, currentAcceleration * deltaTime);
         isMovingByKey = true; 
-        // console.log("[DEBUG] KeyState Check: ArrowUp detected, Accel:", accelerationDirection); // REMOVED Log
     } 
-    else if (keyState['ArrowDown']) { 
-        accelerationDirection.copy(tangentForward).negate(); 
+    if (keyState['ArrowDown']) { 
+        // --- Apply currentAcceleration --- 
+        accelerationVector.addScaledVector(tangentForward.negate(), currentAcceleration * deltaTime);
         isMovingByKey = true; 
-        // console.log("[DEBUG] KeyState Check: ArrowDown detected, Accel:", accelerationDirection); // REMOVED Log
     } 
-    else if (keyState['ArrowLeft']) { 
-        accelerationDirection.copy(tangentRight); // Use POSITIVE tangentRight for LEFT
+    if (keyState['ArrowLeft']) { 
+        // --- Apply currentAcceleration --- 
+        accelerationVector.addScaledVector(tangentRight, currentAcceleration * deltaTime); // Use POSITIVE tangentRight for LEFT
         isMovingByKey = true; 
-        // console.log("[DEBUG] KeyState Check: ArrowLeft detected, Accel:", accelerationDirection); // REMOVED Log
     } 
-    else if (keyState['ArrowRight']) { 
-        accelerationDirection.copy(tangentRight).negate(); // Use NEGATIVE tangentRight for RIGHT
+    if (keyState['ArrowRight']) { 
+        // --- Apply currentAcceleration --- 
+        accelerationVector.addScaledVector(tangentRight.negate(), currentAcceleration * deltaTime); // Use NEGATIVE tangentRight for RIGHT
         isMovingByKey = true; 
-        // console.log("[DEBUG] KeyState Check: ArrowRight detected, Accel:", accelerationDirection); // REMOVED Log
     } 
 
+    // Apply acceleration directly to velocity
+    if (accelerationVector.lengthSq() > 0) {
+        playerVelocity.add(accelerationVector); // Apply the scaled acceleration
+    }
+
+    // --- Apply Friction Conditionally ---
+    const currentFriction = hasFuel ? config.FRICTION : config.OUT_OF_FUEL_FRICTION;
+    playerVelocity.multiplyScalar(1.0 - (1.0 - currentFriction) * deltaTime * 60);
+    // --- End Conditional Friction ---
+
     // --- REVISED Boost Logic ---
-    const now = performance.now();
     const wantsToBoost = keyState['Shift'];
     const timeSinceLastBoost = (now - playerState.lastBoostTime) / 1000;
     const isBoostOnCooldown = timeSinceLastBoost < config.BOOST_COOLDOWN_DURATION;
@@ -430,9 +463,9 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
         }
     }
     // -------------------------------------
-
+    
     // Apply acceleration and friction to playerState.velocity
-    if (accelerationDirection.lengthSq() > 0) {
+    if (accelerationVector.lengthSq() > 0) {
         // Use boost constants if boosting is active
         let currentAcceleration;
         if (isBoosting) {
@@ -447,18 +480,18 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
         // Calculate Max Velocity (REMOVED boost-jump reduction logic)
         const currentMaxVelocity = isBoosting ? config.BOOST_MAX_VELOCITY : config.MAX_VELOCITY;
         
-        playerState.velocity.add(accelerationDirection.multiplyScalar(currentAcceleration * deltaTime));
-        if (playerState.velocity.length() > currentMaxVelocity) {
-            playerState.velocity.normalize().multiplyScalar(currentMaxVelocity);
+        playerVelocity.add(accelerationVector.multiplyScalar(currentAcceleration * deltaTime));
+        if (playerVelocity.length() > currentMaxVelocity) {
+            playerVelocity.normalize().multiplyScalar(currentMaxVelocity);
         }
     } else {
         // Apply friction (no change needed here)
-        playerState.velocity.multiplyScalar(1.0 - (1.0 - config.FRICTION) * deltaTime * 60); 
+        playerVelocity.multiplyScalar(1.0 - (1.0 - config.FRICTION) * deltaTime * 60); 
     }
     
     // Stop completely if velocity is very low (no change needed here)
-    if (playerState.velocity.lengthSq() < 1e-8) {
-        playerState.velocity.set(0, 0, 0);
+    if (playerVelocity.lengthSq() < 1e-8) {
+        playerVelocity.set(0, 0, 0);
     }
 
     // --- REVISED Boost Sound & Cooldown Trigger Logic ---
@@ -510,11 +543,9 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
 
     // --- Handle Rolling Sound with Fade Out --- 
     // Reuse 'now' calculated earlier for boost checks
-    // const now = performance.now(); // REMOVED REDECLARATION
-    // Use the existing isMovingByKey calculated earlier
 
-    // 1. Update Fade Out if it's happening
-    if (playerState.isRollingSoundFadingOut) {
+    // 1. Update Fade Out if it's happening (Only if fueled)
+    if (hasFuel && playerState.isRollingSoundFadingOut) { // <<< Added hasFuel check
         const elapsedFadeTime = (now - playerState.rollingFadeStartTime) / 1000; // in seconds
         if (elapsedFadeTime >= config.ROLLING_SOUND_FADE_DURATION) {
             // Fade complete
@@ -531,35 +562,42 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
         }
     }
 
-    // 2. Check Key State to Start Sound or Initiate/Cancel Fade
-    if (isMovingByKey) {
-        // Player wants to move
-        if (playerState.isRollingSoundFadingOut) {
-            // Was fading out, but player pressed keys again: Cancel fade!
-            console.log("[SOUND] Movement started during fade out, cancelling fade.");
-            playerState.isRollingSoundFadingOut = false;
-            // Ensure sound is playing at full volume (startRollingSound might handle this)
-             startRollingSound(); // Restart to ensure loop/volume is correct
-             playerState.isRollingSoundPlaying = true; // Ensure state is correct
-        } else if (!playerState.isRollingSoundPlaying) {
-            // Was not playing and not fading: Start normally
-             console.log("[SOUND] Keys pressed, starting rolling sound.");
-             startRollingSound();
-             playerState.isRollingSoundPlaying = true;
+    // 2. Check Key State to Start Sound or Initiate/Cancel Fade (Only if fueled)
+    if (hasFuel) { // <<< Added hasFuel check wrapper
+        if (isMovingByKey) {
+            // Player wants to move
+            if (playerState.isRollingSoundFadingOut) {
+                // Was fading out, but player pressed keys again: Cancel fade!
+                console.log("[SOUND] Movement started during fade out, cancelling fade.");
+                playerState.isRollingSoundFadingOut = false;
+                // Ensure sound is playing at full volume (startRollingSound might handle this)
+                 startRollingSound(); // Restart to ensure loop/volume is correct
+                 playerState.isRollingSoundPlaying = true; // Ensure state is correct
+            } else if (!playerState.isRollingSoundPlaying) {
+                // Was not playing and not fading: Start normally
+                 console.log("[SOUND] Keys pressed, starting rolling sound.");
+                 startRollingSound();
+                 playerState.isRollingSoundPlaying = true;
+            }
+            // If already playing and not fading, do nothing.
+    
+            } else {
+            // Player is NOT pressing movement keys
+            if (playerState.isRollingSoundPlaying && !playerState.isRollingSoundFadingOut) {
+                // Was playing, but keys released: Initiate fade out
+                console.log("[SOUND] Keys released, initiating fade out.");
+                playerState.isRollingSoundFadingOut = true;
+                playerState.rollingFadeStartTime = now;
+                // Assuming startRollingSound sets loop = true, we might need this if the sound shouldn't loop during fade:
+                // setRollingSoundLoop(false); 
+            }
+            // If already fading or not playing, do nothing.
         }
-        // If already playing and not fading, do nothing.
-
-        } else {
-        // Player is NOT pressing movement keys
-        if (playerState.isRollingSoundPlaying && !playerState.isRollingSoundFadingOut) {
-            // Was playing, but keys released: Initiate fade out
-            console.log("[SOUND] Keys released, initiating fade out.");
-            playerState.isRollingSoundFadingOut = true;
-            playerState.rollingFadeStartTime = now;
-            // Assuming startRollingSound sets loop = true, we might need this if the sound shouldn't loop during fade:
-            // setRollingSoundLoop(false); 
-        }
-        // If already fading or not playing, do nothing.
+    } else if (playerState.isRollingSoundPlaying || playerState.isRollingSoundFadingOut) {
+        // Ensure sound stops and state resets if fuel runs out mid-play/fade
+        stopRollingSound();
+        playerState.isRollingSoundPlaying = false;
+        playerState.isRollingSoundFadingOut = false;
     }
     // --- END Handle Rolling Sound with Fade Out ---
     
@@ -600,7 +638,7 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
 
     // --- Calculate Displacement --- 
     // Horizontal displacement from velocity
-    const horizontalDeltaPosition = playerState.velocity.clone().multiplyScalar(deltaTime); 
+    const horizontalDeltaPosition = playerVelocity.clone().multiplyScalar(deltaTime); 
     // Vertical displacement from jump physics
     const verticalDisplacement = planetUp.clone().multiplyScalar(playerState.verticalVelocity * deltaTime);
     // Combine displacements
@@ -610,7 +648,7 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     // Update world position based on final velocity
     _playerWorldPos.add(totalDisplacement);
 
-    // --- Apply Landing Detection & Surface Clamping ---
+    // --- Apply Landing Detection & Surface Clamping --- 
     const directionFromCenter = _vector3.copy(_playerWorldPos).sub(_homePlanetWorldPos);
     let currentDistance = directionFromCenter.length();
     const targetDistance = homePlanetRadius + config.PLAYER_RADIUS; // Target distance includes player radius
@@ -651,10 +689,10 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     let targetForwardDir = playerState.targetLookDirection.clone(); // Start with the last direction
     const VELOCITY_LOOK_THRESHOLD_SQ = 0.01 * 0.01; // Square of velocity magnitude threshold
     
-    if (playerState.velocity.lengthSq() > VELOCITY_LOOK_THRESHOLD_SQ) {
+    if (playerVelocity.lengthSq() > VELOCITY_LOOK_THRESHOLD_SQ) {
         // Player is moving significantly
-        const tangentVelocity = playerState.velocity.clone().sub(
-            upDir.clone().multiplyScalar(playerState.velocity.dot(upDir))
+        const tangentVelocity = playerVelocity.clone().sub(
+            upDir.clone().multiplyScalar(playerVelocity.dot(upDir))
         );
         
         if (tangentVelocity.lengthSq() > 1e-6) {
@@ -723,7 +761,7 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     // ------------------------
 
     // --- Update Rolling Sound ---
-    const isMoving = playerState.velocity.lengthSq() > config.VELOCITY_THRESHOLD_SQ;
+    const isMoving = playerVelocity.lengthSq() > config.VELOCITY_THRESHOLD_SQ;
 
     // --- Store boost state for next frame --- (This MUST be the last step for boost logic)
     playerState.wasBoostingLastFrame = isBoosting;
@@ -766,14 +804,14 @@ function updatePathTrail(playerMesh, homePlanet) {
 
         // Use the calculated slice of points (pointsToDraw)
         pathLine.geometry.setFromPoints(pointsToDraw); // Use the slice
-        pathLine.geometry.computeBoundingSphere(); 
+    pathLine.geometry.computeBoundingSphere();
         pathLine.computeLineDistances(); // Still needed for LineSegments
         pathTrailNeedsUpdate = false;
     }
 }
 
 // Export keyState and functions together at the end
-export { initPlayer, updatePlayer, updatePathTrail, keyState, pathPoints }; 
+export { initPlayer, updatePathTrail, keyState, pathPoints }; 
 
 // --- NEW: Boost Trail Geometry Update Function ---
 function updateBoostTrailGeometry() {

@@ -137,29 +137,37 @@ This ensures the ship stays flat on the terrain while turning smoothly to face t
     *   Implemented random placement and respawning logic for resources.
     *   Implemented collection logic based on player proximity.
     *   Added decorative models (mossy logs).
+*   **Pal Companion:**
+    *   Implemented Pal companion that follows the player.
+    *   Added Pal representation on the mini-map.
 *   **Audio Integration:**
-    *   Loaded various sound effects (pickup, impact, rolling, ambient, boost, launch).
-    *   Implemented playback triggers for different game events.
+    *   Loaded various sound effects (pickup, impact, rolling, ambient, boost, launch, terraform ready/success, inventory full, theme music).
+    *   Implemented unified audio loading and playback triggers.
     *   Added positional audio for boost sounds.
+    *   Integrated theme music and ambient background sound.
 *   **Rocket Mechanics:**
     *   Created and positioned a launchpad.
-    *   Implemented rocket model loading.
-    *   Developed launch sequence triggered by player proximity and input (Spacebar).
-    *   Implemented resource cost check (Seeds & Fuel) for launch.
+    *   Implemented rocket model loading and placement logic.
+    *   Developed launch sequence triggered by player proximity and 'L' key input (changed from Spacebar).
+    *   Implemented resource cost check (Seeds & Fuel) with pending launch state.
     *   Created rocket travel logic (basic lerp towards target).
     *   Implemented camera focus switching during rocket travel and landing.
+    *   Refined rocket stationing and visibility logic.
 *   **Terraforming:**
     *   Tracked delivered seeds per planet.
     *   Implemented terraforming trigger via UI button when seed requirements are met.
-    *   Visualized terraforming via simple color change on the target planet.
-    *   Added camera transition to focus on the planet during terraforming.
+    *   Visualized terraforming via smooth color lerp on the target planet.
+    *   Added camera transition to focus on the planet during terraforming, triggering success sound on arrival.
 *   **UI Elements:**
     *   Created inventory display (Seeds, Fuel).
     *   Created target planet seed bank display.
-    *   Created terraform button.
-    *   Created boost meter UI.
-    *   Added debug buttons (Fill Resources, Trigger Terraform).
-    *   Implemented mission status display messages.
+    *   Created terraform button with visual pulse effect when ready.
+    *   Created dynamic boost meter UI showing duration or cooldown.
+    *   Added debug buttons (Fill Resources, Trigger Terraform, Enable Terraform Button).
+    *   Implemented improved mission status display messages (centered, styled).
+    *   Implemented Mini-Map display showing player, Pal, rocket, and path trail.
+*   **Visual Enhancements:**
+    *   Added post-processing effects (Unreal Bloom Pass).
 *   **Code Health & Workflow:**
     *   Refactored code into modular JavaScript files.
     *   Utilized ES Modules for imports/exports.
