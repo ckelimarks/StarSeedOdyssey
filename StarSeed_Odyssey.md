@@ -179,6 +179,34 @@ This ensures the ship stays flat on the terrain while turning smoothly to face t
     *   Terraforming requirements (`SEEDS_REQUIRED_TERRAFORM`).
     *   Potentially other factors affecting game feel and difficulty.
 
+## Branch Comparison: player-jump vs main (Internal Note)
+
+This comparison reflects the state after significant development on the `player-jump` branch, focusing on the jump and boost mechanics.
+
+**Main Differences & Evolution:**
+
+1.  **Jump Mechanic:**
+    *   **`main` Branch:** No jump mechanic exists. Spacebar triggers rocket launch. Player is clamped to the surface via basic gravity simulation.
+    *   **`player-jump` Branch:** Full jump mechanic implemented (`isJumping`, `verticalVelocity`, `isGrounded` state; `JUMP_INITIAL_VELOCITY`, `JUMP_GRAVITY` constants; Spacebar triggers jump). Includes specific gravity logic for boost jumping (`BOOST_JUMP_GRAVITY`) and reduced initial velocity (`BOOST_JUMP_INITIAL_VELOCITY_MULTIPLIER`).
+
+2.  **Boost Mechanic:**
+    *   **`main` Branch:** Basic cooldown-based boost (`BOOST_COOLDOWN_DURATION`, `lastBoostTime`). Simple UI meter shows only cooldown.
+    *   **`player-jump` Branch:** Boost limited by active time (`BOOST_MAX_DURATION`, `boostStartTime`). UI meter dynamically shows remaining duration *or* cooldown. Includes tuned interactions for boost jumping (gravity, initial velocity, previously acceleration/max speed limits).
+
+3.  **Launch Key:**
+    *   **`main` Branch:** Rocket launch triggered by Spacebar (`keyState[' ']`).
+    *   **`player-jump` Branch:** Rocket launch triggered by 'l'/'L' keys (`keyState['l']`), freeing Spacebar for jumping.
+
+**Overall Assessment:**
+
+*   The `player-jump` branch adds the core jump feature and significantly refines the boost mechanic with duration limits, tuned jump interactions, and improved UI feedback.
+*   The complexity on `player-jump` stems from iterative tuning of the jump/boost feel.
+*   The `main` branch lacks these features and refinements.
+
+**Potential Refinement Area:**
+
+*   The underlying physics calculation for applying gravity and friction during movement/jumps differs. `main` used velocity projection and applied friction only to the tangent component. `player-jump` separates vertical jump physics from horizontal movement more explicitly. Exploring the velocity projection method *could* offer an alternative way to handle air friction/control during jumps, potentially simplifying the need for some multipliers, but would likely require re-tuning. The current separated approach is functional and arguably easier to tune directly.
+
 ## Future Feature Ideas (Beyond Current Scope)
 
 *   **Compass & Navigation System:** Implement UI and logic for navigation aids.
