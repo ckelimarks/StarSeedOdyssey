@@ -21,13 +21,17 @@ const keyState = {
     'ArrowLeft': false, 
     'ArrowRight': false,
     ' ': false, // Spacebar
-    'Shift': false // NEW: Track Shift key
+    'Shift': false, // NEW: Track Shift key
+    'l': false // CHANGED: Use lowercase 'l' for launch key state
 };
 
 // Path Trail variables
-let pathPoints = [];
-let pathLine = null;
-let needsPathUpdate = false;
+let pathTrailPoints = []; // Renamed from pathPoints for clarity
+let pathTrailLine = null;
+let pathTrailNeedsUpdate = false; // Renamed from needsPathUpdate
+const PATH_TRAIL_MAX_POINTS = 500; // Limit number of points
+const PATH_TRAIL_MIN_DISTANCE_SQ = config.MIN_PATH_DISTANCE * config.MIN_PATH_DISTANCE; // Use squared distance
+let lastPathTrailPosition = new THREE.Vector3(Infinity, Infinity, Infinity); // Initialize far away
 
 // Temporary vectors for calculations within this module
 const _tempMatrix = new THREE.Matrix4();
@@ -85,7 +89,12 @@ function initPlayer(scene, homePlanet, audioListener) {
         // Initialize so boost is available immediately
         lastBoostTime: performance.now() - (config.BOOST_COOLDOWN_DURATION * 1000 + 100), 
         isRiseSoundPlaying: false, // Is the continuous rise sound playing?
-        wasBoostingLastFrame: false // Track boost state change for burst sound
+        wasBoostingLastFrame: false, // Track boost state change for burst sound
+        // --- Re-add Jump State ---
+        isJumping: false,
+        verticalVelocity: 0.0,
+        isGrounded: true
+        // -----------------------
     };
 
     // Player initial position is LOCAL to the home planet
@@ -240,21 +249,26 @@ function initializePathTrail(parentObject, playerMeshRef) {
     const initialWorldPos = new THREE.Vector3();
     playerMeshRef.getWorldPosition(initialWorldPos);
     const initialLocalPos = parentObject.worldToLocal(initialWorldPos);
-    pathPoints.push(initialLocalPos.clone()); // Start with current position
+    pathTrailPoints.push(initialLocalPos.clone()); // Start with current position
     
-    pathGeometry.setFromPoints(pathPoints);
-    pathLine = new THREE.Line(pathGeometry, pathMaterial);
-    pathLine.computeLineDistances();
-    parentObject.add(pathLine); 
+    pathGeometry.setFromPoints(pathTrailPoints);
+    pathTrailLine = new THREE.Line(pathGeometry, pathMaterial);
+    pathTrailLine.computeLineDistances();
+    parentObject.add(pathTrailLine); 
     console.log("Player INIT: Path trail initialized and added.");
 }
 
 // Event Handlers
 function handleKeyDown(event) {
+    const key = event.key;
+    // Normalize 'L' to 'l'
+    const normalizedKey = (key === 'L') ? 'l' : key;
+
     // Use event.key for Shift detection (usually covers both Left and Right Shift)
-    if (event.key === 'Shift' || keyState.hasOwnProperty(event.key)) { 
-        console.log(`[DEBUG] KeyDown detected: ${event.key}`);
-        keyState[event.key] = true;
+    // Check against the normalized key
+    if (key === 'Shift' || keyState.hasOwnProperty(normalizedKey)) { 
+        console.log(`[DEBUG] KeyDown detected: ${key} (Normalized: ${normalizedKey})`);
+        keyState[normalizedKey] = true; // Use normalized key
         
         // *** NEW: Resume Audio Context on first key press ***
         if (audioListenerRef && audioListenerRef.context.state === 'suspended') {
@@ -265,11 +279,15 @@ function handleKeyDown(event) {
 }
 
 function handleKeyUp(event) {
+    const key = event.key;
+    // Normalize 'L' to 'l'
+    const normalizedKey = (key === 'L') ? 'l' : key;
+
     // Use event.key for Shift detection
-    if (event.key === 'Shift' || keyState.hasOwnProperty(event.key)) { 
-        console.log(`[DEBUG] KeyUp detected: ${event.key}`);
-        // console.log(`Key Up: ${event.key}`);
-        keyState[event.key] = false;
+    // Check against the normalized key
+    if (key === 'Shift' || keyState.hasOwnProperty(normalizedKey)) { 
+        console.log(`[DEBUG] KeyUp detected: ${key} (Normalized: ${normalizedKey})`);
+        keyState[normalizedKey] = false; // Use normalized key
     }
 }
 
@@ -376,15 +394,30 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     } 
     // else: wantsToBoost is false -> remain false
 
-    // --- Boost Debug Logs ---
-    console.log(`[BOOST DEBUG] wants:${wantsToBoost}, timeSince:${timeSinceLastBoost.toFixed(2)}, cooldown:${isBoostOnCooldown}, isBoosting:${isBoosting}, wasBoostingLastFrame:${playerState.wasBoostingLastFrame}`);
     // --- END REVISED Boost Logic ---
     
     // Apply acceleration and friction to playerState.velocity
     if (accelerationDirection.lengthSq() > 0) {
         // Use boost constants if boosting is active
-        const currentAcceleration = isBoosting ? config.BOOST_ACCELERATION : config.ACCELERATION;
-        const currentMaxVelocity = isBoosting ? config.BOOST_MAX_VELOCITY : config.MAX_VELOCITY;
+        let currentAcceleration;
+        if (isBoosting) {
+            // Apply reduced acceleration if also jumping
+            currentAcceleration = playerState.isJumping
+                ? config.BOOST_ACCELERATION * config.BOOST_JUMP_ACCELERATION_MULTIPLIER
+                : config.BOOST_ACCELERATION;
+        } else {
+            currentAcceleration = config.ACCELERATION;
+        }
+
+        // Calculate Max Velocity, reducing if boost-jumping
+        let currentMaxVelocity;
+        if (isBoosting) {
+            currentMaxVelocity = playerState.isJumping
+                ? config.BOOST_MAX_VELOCITY * config.BOOST_JUMP_MAX_VELOCITY_MULTIPLIER
+                : config.BOOST_MAX_VELOCITY;
+        } else {
+            currentMaxVelocity = config.MAX_VELOCITY;
+        }
         
         playerState.velocity.add(accelerationDirection.multiplyScalar(currentAcceleration * deltaTime));
         if (playerState.velocity.length() > currentMaxVelocity) {
@@ -429,6 +462,22 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     }
     // --- END Boost Sound & Cooldown Logic ---
     
+    // --- Handle Jump Input (before position calculation) ---
+    if (keyState[' '] && !playerState.isJumping && playerState.isGrounded) { // Only jump if grounded
+        // Check if boosting *at the moment of jump initiation*
+        const isBoostingAtJumpStart = keyState['Shift']; // Check Shift key state now
+        const initialVelocity = isBoostingAtJumpStart 
+            ? config.JUMP_INITIAL_VELOCITY * config.BOOST_JUMP_INITIAL_VELOCITY_MULTIPLIER
+            : config.JUMP_INITIAL_VELOCITY;
+            
+        playerState.verticalVelocity = initialVelocity; // Use calculated initial velocity
+        playerState.isJumping = true;
+        playerState.isGrounded = false; // Player is no longer grounded
+        keyState[' '] = false; // Consume jump input
+        console.log(`[JUMP] Jump initiated! Initial VVel: ${initialVelocity.toFixed(2)} (Boosting: ${isBoostingAtJumpStart})`); // Debug log
+    }
+    // -------------------------------------------------------
+
     // --- Handle Rolling Sound with Fade Out --- 
     // Reuse 'now' calculated earlier for boost checks
     // const now = performance.now(); // REMOVED REDECLARATION
@@ -484,6 +533,17 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     }
     // --- END Handle Rolling Sound with Fade Out ---
     
+    // --- Apply Gravity (if jumping) ---
+    if (playerState.isJumping) {
+        // Use stronger gravity if boosting
+        const currentGravity = isBoosting ? config.BOOST_JUMP_GRAVITY : config.JUMP_GRAVITY;
+        playerState.verticalVelocity += currentGravity * deltaTime;
+        console.log(`[JUMP] Applying gravity (${currentGravity.toFixed(1)}). VVel: ${playerState.verticalVelocity.toFixed(3)}`); // Debug log
+    } else {
+        playerState.verticalVelocity = 0; // Ensure vertical velocity is zeroed if not jumping
+    }
+    // ---------------------------------
+    
     // --- Update Boost Trail --- 
     // Check isBoosting state calculated earlier
     if (isBoosting) {
@@ -508,36 +568,47 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     }
     // --- END Boost Trail Update ---
 
-    // --- Apply Gravity & Clamp to Surface ---
-    // Gravity pulls towards the planet's center (in world space)
-    const gravityDirection = _vector3.copy(_homePlanetWorldPos).sub(_playerWorldPos).normalize();
-    playerState.velocity.add(gravityDirection.multiplyScalar(config.GRAVITY_CONSTANT * deltaTime));
-
-    // Project velocity onto tangent plane to prevent "sticking" when moving fast horizontally
-    const tangentVelocity = playerState.velocity.clone().sub(
-        planetUp.clone().multiplyScalar(playerState.velocity.dot(planetUp))
-    );
-    const radialVelocity = playerState.velocity.clone().sub(tangentVelocity); // Velocity towards/away from center
-
-    // Apply friction ONLY to tangent velocity
-    tangentVelocity.multiplyScalar(Math.pow(config.FRICTION, deltaTime)); // Frame-rate independent friction
-
-    // Recombine velocities
-    playerState.velocity.copy(tangentVelocity).add(radialVelocity);
+    // --- Calculate Displacement --- 
+    // Horizontal displacement from velocity
+    const horizontalDeltaPosition = playerState.velocity.clone().multiplyScalar(deltaTime); 
+    // Vertical displacement from jump physics
+    const verticalDisplacement = planetUp.clone().multiplyScalar(playerState.verticalVelocity * deltaTime);
+    // Combine displacements
+    const totalDisplacement = horizontalDeltaPosition.add(verticalDisplacement); 
+    // ----------------------------
 
     // Update world position based on final velocity
-    const deltaPosition = playerState.velocity.clone().multiplyScalar(deltaTime);
-    _playerWorldPos.add(deltaPosition);
+    _playerWorldPos.add(totalDisplacement);
 
-    // Clamp player to the surface of the home planet (adjust position radially)
+    // --- Apply Landing Detection & Surface Clamping ---
     const directionFromCenter = _vector3.copy(_playerWorldPos).sub(_homePlanetWorldPos);
-    const distanceFromCenter = directionFromCenter.length();
-    const targetDistance = homePlanetRadius + config.PLAYER_RADIUS; // Target distance from center
+    let currentDistance = directionFromCenter.length();
+    const targetDistance = homePlanetRadius + config.PLAYER_RADIUS; // Target distance includes player radius
 
-    if (Math.abs(distanceFromCenter - targetDistance) > 1e-4) { // Small threshold
+    // Landing Check
+    const landingThreshold = 0.1; // How close to surface to count as landing
+    if (playerState.isJumping && playerState.verticalVelocity <= 0 && (currentDistance - targetDistance) < landingThreshold) {
+        console.log(`[JUMP] Landing detected. Dist: ${currentDistance.toFixed(3)}, VVel: ${playerState.verticalVelocity.toFixed(3)}`); // Debug log
+        playerState.isJumping = false;
+        playerState.verticalVelocity = 0;
+        playerState.isGrounded = true;
+        currentDistance = targetDistance; // Force snap distance for clamping
+    } else if (!playerState.isJumping) {
+        // Ensure grounded state if not jumping (e.g., initial state or sliding)
+        if (!playerState.isGrounded && (currentDistance - targetDistance) < landingThreshold * 2) { // Wider threshold for just sliding onto ground
+             console.log("[JUMP] Grounded state set while not jumping (sliding).")
+             playerState.isGrounded = true; 
+        }
+        // Force snap to surface if not jumping
+        currentDistance = targetDistance; 
+    }
+    
+    // Clamp player to the surface 
+    if (!playerState.isJumping) { 
         directionFromCenter.normalize().multiplyScalar(targetDistance);
         _playerWorldPos.copy(_homePlanetWorldPos).add(directionFromCenter);
     }
+    // --- End Landing/Clamping ---
 
     // Convert final world position back to LOCAL position relative to the planet
     playerMesh.position.copy(homePlanet.worldToLocal(_playerWorldPos.clone()));
@@ -616,7 +687,7 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
 
     // --- Update Path Trail ---
     if (playerState.mesh) {
-        updatePathTrail(playerState.mesh);
+        updatePathTrail(playerState.mesh, homePlanet);
     }
     // ------------------------
 
@@ -627,26 +698,40 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     playerState.wasBoostingLastFrame = isBoosting;
 }
 
-// Update Path Trail Geometry
-function updatePathTrail(playerMesh) {
-    if (!needsPathUpdate || !pathLine || pathPoints.length < 2) return;
+// Update Path Trail (Restored Logic)
+function updatePathTrail(playerMesh, homePlanet) {
+    if (!playerMesh || !homePlanet || !pathTrailLine) return;
 
-    const positions = pathPoints.flatMap(p => [p.x, p.y, p.z]);
-    pathLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    pathLine.computeLineDistances(); 
-    pathLine.geometry.attributes.position.needsUpdate = true;
-    pathLine.geometry.computeBoundingSphere();
-    needsPathUpdate = false;
+    // Get player's current world position
+    playerMesh.getWorldPosition(_playerWorldPos);
 
-    // Update path trail based on the player's current position
-    const currentWorldPos = playerMesh.getWorldPosition(_playerWorldPos);
-    const currentLocalPos = homePlanet.worldToLocal(currentWorldPos);
-    pathPoints.push(currentLocalPos.clone());
-    pathLine.geometry.setFromPoints(pathPoints);
-    pathLine.computeLineDistances();
-    pathLine.geometry.attributes.position.needsUpdate = true;
-    pathLine.geometry.computeBoundingSphere();
-    needsPathUpdate = true;
+    // Check distance from last point (using squared distance for efficiency)
+    if (_playerWorldPos.distanceToSquared(lastPathTrailPosition) > PATH_TRAIL_MIN_DISTANCE_SQ) {
+        // Convert world position to homePlanet's local space
+        const localPos = homePlanet.worldToLocal(_playerWorldPos.clone()); 
+
+        // Add new point
+        pathTrailPoints.push(localPos);
+
+        // Limit trail length
+        if (pathTrailPoints.length > PATH_TRAIL_MAX_POINTS) {
+            pathTrailPoints.shift(); // Remove the oldest point
+        }
+
+        // Update last position
+        lastPathTrailPosition.copy(_playerWorldPos);
+        pathTrailNeedsUpdate = true;
+        // console.log(`[PathTrail] Added point. Total: ${pathTrailPoints.length}`); // DEBUG
+    }
+
+    // Update geometry if needed
+    if (pathTrailNeedsUpdate) {
+        pathTrailLine.geometry.setFromPoints(pathTrailPoints);
+        pathTrailLine.geometry.computeBoundingSphere(); // Important for visibility/frustum culling
+        pathTrailLine.computeLineDistances(); // Required for dashed lines
+        pathTrailNeedsUpdate = false;
+        // console.log("[PathTrail] Geometry updated."); // DEBUG
+    }
 }
 
 // Export keyState and functions together at the end
@@ -730,3 +815,39 @@ function updateBoostTrailGeometry() {
     geometry.attributes.color.needsUpdate = true;
     geometry.index.needsUpdate = true;
 } 
+
+// --- NEW: Rolling Sound Handling ---
+function handleRollingSound(isMoving, playerState) {
+    const sound = window.loadedSounds?.rollingSound; // Get reference from globally stored object
+    if (!sound || !sound.buffer) {
+        // console.warn("Rolling sound not ready."); // Optional: Add warning if needed
+        return;
+    }
+
+    const shouldBePlaying = isMoving && playerState.isGrounded; // Condition remains the same
+
+    // --- Add Rolling Sound Debug Logs ---
+    // console.log(`[Rolling Sound DEBUG] isMoving: ${isMoving}, isGrounded: ${playerState.isGrounded}, shouldBePlaying: ${shouldBePlaying}, sound.isPlaying: ${sound.isPlaying}, context.state: ${sound.context.state}`);
+    // ----------------------------------
+
+    if (shouldBePlaying && !sound.isPlaying) {
+        if (sound.context.state === 'running') {
+             // console.log("SOUND: Starting rolling sound."); // Optional: Log sound start
+            sound.play();
+        } else {
+            console.warn("Cannot start rolling sound - audio context not running.");
+        }
+    } else if (!shouldBePlaying && sound.isPlaying) {
+         // console.log("SOUND: Stopping rolling sound."); // Optional: Log sound stop
+        sound.stop();
+    }
+
+    // Optional: Adjust playback rate based on speed?
+    // if (sound.isPlaying && playerState.velocity) {
+    //     const speed = playerState.velocity.length();
+    //     const maxSpeed = config.MAX_SPEED; // Assuming a max speed config
+    //     const playbackRate = 1.0 + (speed / maxSpeed) * 0.5; // Example: 1.0 to 1.5 rate
+    //     sound.setPlaybackRate(Math.max(0.5, Math.min(playbackRate, 2.0))); // Clamp rate
+    // }
+}
+// ---------------------------------

@@ -901,13 +901,14 @@ function loadAudio(listener) {
         const loader = new THREE.AudioLoader();
         let soundsLoaded = 0;
         const totalSoundsToLoad = 8; // **UPDATE THIS COUNT** if you add/remove sounds
+        const loadedSounds = {}; // Object to store loaded sound references
 
         const checkAllLoaded = () => {
             soundsLoaded++;
             console.log(`[Audio Load] Loaded sound ${soundsLoaded} / ${totalSoundsToLoad}`);
             if (soundsLoaded === totalSoundsToLoad) {
                 console.log("All audio loaded successfully.");
-                resolve(); // Resolve the main promise
+                resolve(loadedSounds); // Resolve the main promise WITH the sounds object
             }
         };
 
@@ -926,6 +927,7 @@ function loadAudio(listener) {
                 pickupSound.setBuffer(buffer);
                 pickupSound.setVolume(0.5);
                 pickupSound.setLoop(false);
+                loadedSounds.pickupSound = pickupSound; // Store reference
                 console.log("Seed (treefall) pickup sound loaded.");
                 checkAllLoaded();
             }, 
@@ -940,6 +942,7 @@ function loadAudio(listener) {
                 fuelPickupSound1.setBuffer(buffer);
                 fuelPickupSound1.setLoop(false);
                 fuelPickupSound1.setVolume(0.5);
+                loadedSounds.fuelPickupSound = fuelPickupSound1; // Store reference
                 console.log("Fuel pickup sound loaded.");
                 checkAllLoaded();
             }, 
@@ -954,6 +957,7 @@ function loadAudio(listener) {
                 rocketLaunchSound.setBuffer(buffer);
                 rocketLaunchSound.setLoop(false); 
                 rocketLaunchSound.setVolume(0.6);
+                loadedSounds.rocketLaunchSound = rocketLaunchSound; // Store reference
                 console.log("Rocket launch sound loaded.");
                 checkAllLoaded();
             }, 
@@ -968,6 +972,7 @@ function loadAudio(listener) {
                 impactSound.setBuffer(buffer);
                 impactSound.setLoop(false); 
                 impactSound.setVolume(0.7); 
+                loadedSounds.impactSound = impactSound; // Store reference
                 console.log("Impact sound loaded.");
                 checkAllLoaded();
             }, 
@@ -982,6 +987,7 @@ function loadAudio(listener) {
                 rollingSound.setBuffer(buffer);
                 rollingSound.setLoop(true); 
                 rollingSound.setVolume(config.ROLLING_SOUND_BASE_VOLUME);
+                loadedSounds.rollingSound = rollingSound; // Store reference
                 console.log("Rolling sound loaded.");
                 checkAllLoaded();
             }, 
@@ -996,8 +1002,13 @@ function loadAudio(listener) {
                 ambientSound.setBuffer(buffer);
                 ambientSound.setLoop(true);
                 ambientSound.setVolume(0.3);
+                loadedSounds.ambientSound = ambientSound; // Store reference
                 console.log("Ambient sound loaded."); 
-                // Don't auto-play here, let main control it after loading
+                // --- REMOVED DEBUG and WINDOW ASSIGNMENT ---
+                // console.log(`[Audio Load DEBUG] Ambient check: ...`);
+                // window.ambientSound = ambientSound; 
+                // console.log(`[Audio Load DEBUG] Assigned to window.ambientSound.`);
+                // -----------------------------------------
                 checkAllLoaded();
             }, 
             undefined, 
@@ -1013,6 +1024,7 @@ function loadAudio(listener) {
                 boostBurstSound.setRolloffFactor(1);
                 boostBurstSound.setVolume(0.6); 
                 boostBurstSound.loop = false;
+                loadedSounds.boostBurstSound = boostBurstSound; // Store reference
                 console.log("Boost Burst sound loaded.");
                 checkAllLoaded();
             }, 
@@ -1029,6 +1041,7 @@ function loadAudio(listener) {
                 boostRiseSound.setRolloffFactor(1);
                 boostRiseSound.setVolume(0.5); 
                 boostRiseSound.loop = false; 
+                loadedSounds.boostRiseSound = boostRiseSound; // Store reference
                 console.log("Boost Rise sound loaded.");
                 checkAllLoaded();
             }, 

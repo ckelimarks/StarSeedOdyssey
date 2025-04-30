@@ -228,18 +228,23 @@ async function init() {
         // --- Step 1.5: Load Audio Asynchronously and Wait ---
         console.log("Main INIT: Loading audio...");
         try {
-            await loadAudio(audioListener);
+            const loadedSounds = await loadAudio(audioListener); // Get the returned object
             console.log("Main INIT: Audio loaded successfully.");
-            // Start ambient sound now that loading is confirmed
-            if (window.ambientSound && window.ambientSound.buffer && !window.ambientSound.isPlaying) {
-                 if (window.ambientSound.context.state === 'running') {
+            
+            // Store for global access if needed by other modules (like player.js for rolling sound)
+            window.loadedSounds = loadedSounds; 
+
+            // Start ambient sound now using the returned reference
+            if (loadedSounds.ambientSound && loadedSounds.ambientSound.buffer && !loadedSounds.ambientSound.isPlaying) {
+                 if (loadedSounds.ambientSound.context.state === 'running') {
                      console.log("Main INIT: Starting ambient sound.");
-                     window.ambientSound.play();
+                     loadedSounds.ambientSound.play();
                  } else {
                     console.warn("Main INIT: Ambient sound loaded, but audio context not running, cannot play.");
                  } 
             } else {
-                 console.warn("Main INIT: Ambient sound object or buffer not ready after loadAudio resolved?");
+                 // This condition should ideally not be met now if loading was successful
+                 console.warn("Main INIT: Ambient sound object or buffer not ready after loadAudio resolved? (Using returned object)");
             }
         } catch (error) {
             console.error("Main INIT: Failed to load audio. Gameplay might be affected.", error);
@@ -436,12 +441,12 @@ function animate() {
     // ------------------------------------
     
     updatePlayer(deltaTime, camera, homePlanet, planetsState);
+    updatePathTrail(window.playerState.mesh, homePlanet);
     // Check if player mesh exists before updating resources (it's loaded async)
     if (window.playerState?.mesh) {
         updateResources(scene, window.playerState.mesh, homePlanet, audioListener, deltaTime);
     }
     const landingInfo = updateRocket(deltaTime);
-    updatePathTrail();
 
     // --- Handle Terraforming Color Lerp ---
     for (const planetName in isTerraforming) {
@@ -582,9 +587,9 @@ function animate() {
                 }
             }
 
-            // Handle Spacebar Press (Launch Initiation)
-            if (keyState[' ']) {
-                keyState[' '] = false; // Consume key press
+            // Handle Spacebar Press (Launch Initiation) --> Change to L key
+            if (keyState['l']) { // CHANGED FROM keyState['L']
+                keyState['l'] = false; // Consume key press
 
                 if (seedsToLaunch > 0) {
                     console.log(`RESOURCE CHECK: seeds=${inventory.seeds}, fuel=${inventory.fuel.toFixed(1)}, neededFuel=${fuelNeeded.toFixed(1)}`);

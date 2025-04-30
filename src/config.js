@@ -1,5 +1,5 @@
 // Physics Constants
-export const MAX_VELOCITY = 30; // Resetting to a more moderate value
+export const MAX_VELOCITY = 25; // Reduced from 30
 export const ACCELERATION = 50; // Rate of acceleration
 export const BOOST_MAX_VELOCITY = 60; // NEW: Max speed when boosting
 export const BOOST_ACCELERATION = 100; // NEW: Acceleration when boosting
@@ -126,6 +126,15 @@ export const SYSTEM_RADIUS = 200; // Radius of the circular path planets orbit o
 
 // --- Debugging ---
 export const DEBUG_SHOW_PLAYER_AXES = false; // Toggle visibility of player's local axes 
+
+// --- Player Jump --- (NEW)
+export const JUMP_INITIAL_VELOCITY = 5.0; // Initial upward speed (Reduced from 12.0)
+export const JUMP_GRAVITY = -19.0; // Gravity affecting the jump (Increased magnitude from -15.0)
+export const BOOST_JUMP_GRAVITY = -10.0; // STRONGER gravity when boosting during a jump (Reduced magnitude from -25.0)
+export const BOOST_JUMP_INITIAL_VELOCITY_MULTIPLIER = 0.7; // Reduce initial jump velocity if boosting (Increased from 0.5)
+export const BOOST_JUMP_ACCELERATION_MULTIPLIER = 0.6; // Reduce horizontal boost acceleration while jumping (NEW)
+export const BOOST_JUMP_MAX_VELOCITY_MULTIPLIER = 0.4; // Reduce max horizontal speed while boost jumping (NEW)
+// -------------------
 
 // --- Boost Trail --- (NEW)
 export const BOOST_TRAIL_COLOR = 0x00aaff; // Light blue
