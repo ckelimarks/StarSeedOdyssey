@@ -33,7 +33,7 @@ let pathLine = null; // KEEP: pathLine (ensure it's LineSegments)
 // --- Define Material ONCE at module level --- 
 let pathMaterial = new THREE.LineDashedMaterial({ 
     color: 0xffffff, 
-    linewidth: 2, // INCREASED from 1
+    linewidth: 3, // INCREASED from 2
     scale: 1, 
     // --- Adjust dash/gap ratio ---
     dashSize: config.MIN_PATH_DISTANCE * 0.7, // Was 0.6
@@ -44,7 +44,8 @@ let pathMaterial = new THREE.LineDashedMaterial({
 // -------------------------------------------
 let pathGeometry = null; // ADDED: Module-level geometry
 let pathTrailNeedsUpdate = false; // KEEP: pathTrailNeedsUpdate
-const PATH_TRAIL_MAX_POINTS = 1500; // INCREASED from 500
+const PATH_TRAIL_MAX_POINTS = 1500; // Max points STORED (for long mini-map trail)
+const MAIN_TRAIL_DRAW_POINTS = 300; // NEW: Max points DRAWN for main trail
 const PATH_TRAIL_MIN_DISTANCE_SQ = config.MIN_PATH_DISTANCE * config.MIN_PATH_DISTANCE; // Use squared distance
 let lastPathTrailPosition = new THREE.Vector3(Infinity, Infinity, Infinity); // Initialize far away
 
@@ -756,12 +757,17 @@ function updatePathTrail(playerMesh, homePlanet) {
 
     // Update geometry if needed
     if (pathTrailNeedsUpdate) {
-        // Use the single pathPoints array (USING CORRECT VAR NAMES)
-        pathLine.geometry.setFromPoints(pathPoints); // CORRECT: Use pathLine and pathPoints
+        // --- Calculate subset of points to draw for MAIN trail --- 
+        const numAvailablePoints = pathPoints.length;
+        const numVerticesToDraw = Math.min(numAvailablePoints, MAIN_TRAIL_DRAW_POINTS);
+        const startIndex = Math.max(0, numAvailablePoints - numVerticesToDraw);
+        const pointsToDraw = pathPoints.slice(startIndex);
+        // --------------------------------------------------------
+
+        // Use the calculated slice of points (pointsToDraw)
+        pathLine.geometry.setFromPoints(pointsToDraw); // Use the slice
         pathLine.geometry.computeBoundingSphere(); 
-        // --- RE-ENABLE computeLineDistances for LineSegments ---
-        pathLine.computeLineDistances(); // CORRECT: Use pathLine
-        // -------------------------------------------------
+        pathLine.computeLineDistances(); // Still needed for LineSegments
         pathTrailNeedsUpdate = false;
     }
 }

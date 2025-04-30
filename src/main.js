@@ -686,6 +686,11 @@ function updateMiniMap() {
 
     // --- NEW: Update Map Path Trail ---
     if (mapPathTrail && pathPoints) {
+        // --- Ensure planet matrix and position are up-to-date --- 
+        homePlanet.updateMatrixWorld(); // Force update world matrix
+        homePlanet.getWorldPosition(_mapHomePlanetWorldPos); // Get CURRENT world position
+        // -------------------------------------------------------
+
         // --- DEBUG LOGGING ---
         console.log(`[Map Path Debug] pathPoints.length: ${pathPoints.length}`);
         // ---------------------
