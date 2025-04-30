@@ -11,6 +11,26 @@ import { // Import Pal Sound Functions (Simplified)
 // Module-level variables
 const loader = new GLTFLoader();
 
+const PAL_MOVE_SPEED = 5.0;
+const PAL_HOVER_HEIGHT = 1.5;
+const PAL_FOLLOW_DISTANCE = 5.0;
+const PAL_SMOOTHING_FACTOR = 0.05;
+const PAL_MAX_DISTANCE_FROM_PLAYER = 15.0;
+const PAL_CLAMP_THRESHOLD = 5.0; // How close to player before clamping kicks in hard
+const PAL_SOUND_UPDATE_INTERVAL = 1000; // ms between positional sound updates
+
+let palMesh = null;
+let playerMeshRef = null; // Reference to the player's mesh
+let homePlanetRef = null; // Reference to the home planet
+let palTargetPosition = new THREE.Vector3();
+let palSound = null;
+let lastSoundUpdateTime = 0;
+let isPalInitialized = false;
+
+// --- Export the mesh --- 
+export { palMesh }; 
+// -----------------------
+
 // --- Pal State ---
 let palState = {
     mesh: null,
@@ -60,22 +80,30 @@ export function initPal(playerMesh, parentObject) {
         return;
     }
 
+    // --- Assign arguments to module-level refs BEFORE loader call ---
+    playerMeshRef = playerMesh; 
+    homePlanetRef = parentObject;
+    // -------------------------------------------------------------
+
     loader.load(
         'models/stuffed_toy_penguins_type_a/penguin.gltf',
         function (gltf) { // Success callback
             console.log("Pal INIT: Penguin GLTF model loaded.");
             const model = gltf.scene;
 
-            // Basic Setup
-            palState.mesh = model;
-            palState.mesh.name = 'palPenguin';
+            // --- Assign to EXPORTED variable AND local state ---
+            palMesh = model; // Assign to exported variable
+            palState.mesh = palMesh; // Assign to local state object
+            // ---------------------------------------------------
+
+            palMesh.name = 'palPenguin';
 
             // Scaling
             const palScale = config.PLAYER_MODEL_SCALE * 1.2; // Using the updated scale
-            palState.mesh.scale.set(palScale, palScale, palScale);
+            palMesh.scale.set(palScale, palScale, palScale);
 
             // Shadows
-            palState.mesh.traverse((child) => {
+            palMesh.traverse((child) => {
                 if (child.isMesh) {
                     child.castShadow = true;
                     child.receiveShadow = true;
@@ -83,40 +111,40 @@ export function initPal(playerMesh, parentObject) {
             });
 
             // Initial Positioning & Orientation
-            const playerLocalPos = playerMesh.position.clone();
-            const playerQuaternion = playerMesh.quaternion.clone();
+            const playerLocalPos = playerMeshRef.position.clone(); // Use playerMeshRef now
+            const playerQuaternion = playerMeshRef.quaternion.clone(); // Use playerMeshRef now
 
             // Start pal at player's pos initially for alignment calc
-            palState.mesh.position.copy(playerLocalPos);
+            palMesh.position.copy(playerLocalPos);
 
             // Align pal with surface normal
             _palUp.copy(playerLocalPos).normalize(); // Normal based on player's local pos
             _alignmentQuaternion.setFromUnitVectors(_modelUp, _palUp);
-            palState.mesh.quaternion.copy(_alignmentQuaternion);
+            palMesh.quaternion.copy(_alignmentQuaternion);
 
             // Add to Parent BEFORE calculating offset
-            parentObject.add(palState.mesh);
-            console.log(`Pal INIT: Pal mesh added as child of ${parentObject.name}`);
+            homePlanetRef.add(palMesh); // Use homePlanetRef now
+            console.log(`Pal INIT: Pal mesh added as child of ${homePlanetRef.name}`);
 
             // Apply Offset RELATIVE to Player's Local Frame
             const playerRight = new THREE.Vector3(1, 0, 0).applyQuaternion(playerQuaternion);
             const offsetDistance = 2.0; // Slightly increased offset
-            palState.mesh.position.addScaledVector(playerRight, offsetDistance);
+            palMesh.position.addScaledVector(playerRight, offsetDistance);
             console.log(`Pal INIT: Applied offset relative to player.`);
 
             // Final clamp to surface after offset
-            const palFinalLocalPos = palState.mesh.position.clone();
-            const planetRadius = parentObject.geometry.parameters.radius;
+            const palFinalLocalPos = palMesh.position.clone();
+            const planetRadius = homePlanetRef.geometry.parameters.radius;
             const palApproxRadius = config.PLAYER_RADIUS * 0.6; // Estimate pal radius based on scale multiplier
             const palTargetHeight = planetRadius + palApproxRadius;
             palFinalLocalPos.normalize().multiplyScalar(palTargetHeight);
-            palState.mesh.position.copy(palFinalLocalPos);
+            palMesh.position.copy(palFinalLocalPos);
             console.log(`Pal INIT: Clamped final position to surface.`);
 
-            // --- Attach Positional Sound to Pal Mesh --- (NEW)
+            // --- Attach Positional Sound to Pal Mesh ---
             const sound = window.loadedSounds?.palMovementSound;
-            if (sound && palState.mesh) {
-                palState.mesh.add(sound);
+            if (sound && palMesh) { // Use palMesh here
+                palMesh.add(sound);
                 console.log("[Pal Sound] Attached positional sound to pal mesh.");
             } else {
                 console.warn("[Pal Sound] Could not attach sound in init - sound or mesh not ready?");
@@ -124,12 +152,12 @@ export function initPal(playerMesh, parentObject) {
             // -------------------------------------------
 
             // Set initial look direction based on player
-            // palState.targetLookDirection.copy(playerMesh.getWorldDirection(new THREE.Vector3()));
-            // Let's have it look away initially, consistent with player flip
-            const initialPlayerForward = new THREE.Vector3(0,0,-1).applyQuaternion(playerMesh.quaternion);
+            const initialPlayerForward = new THREE.Vector3(0,0,-1).applyQuaternion(playerQuaternion);
             palState.targetLookDirection.copy(initialPlayerForward);
             // Apply initial flip to match orientation logic in update
-            palState.mesh.quaternion.multiply(_flipQuat);
+            palMesh.quaternion.multiply(_flipQuat);
+
+            isPalInitialized = true; // Set flag only on successful load
 
         },
         undefined, // onProgress callback

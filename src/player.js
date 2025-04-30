@@ -28,10 +28,23 @@ const keyState = {
 };
 
 // Path Trail variables
-let pathTrailPoints = []; // Renamed from pathPoints for clarity
-let pathTrailLine = null;
-let pathTrailNeedsUpdate = false; // Renamed from needsPathUpdate
-const PATH_TRAIL_MAX_POINTS = 500; // Limit number of points
+let pathPoints = []; // REVERTED: Back to pathPoints
+let pathLine = null; // KEEP: pathLine (ensure it's LineSegments)
+// --- Define Material ONCE at module level --- 
+let pathMaterial = new THREE.LineDashedMaterial({ 
+    color: 0xffffff, 
+    linewidth: 2, // INCREASED from 1
+    scale: 1, 
+    // --- Adjust dash/gap ratio ---
+    dashSize: config.MIN_PATH_DISTANCE * 0.7, // Was 0.6
+    gapSize: config.MIN_PATH_DISTANCE * 0.3, // Was 0.4
+    // -----------------------------
+    // depthTest: false // REMOVED: Test without forcing it on top
+});
+// -------------------------------------------
+let pathGeometry = null; // ADDED: Module-level geometry
+let pathTrailNeedsUpdate = false; // KEEP: pathTrailNeedsUpdate
+const PATH_TRAIL_MAX_POINTS = 1500; // INCREASED from 500
 const PATH_TRAIL_MIN_DISTANCE_SQ = config.MIN_PATH_DISTANCE * config.MIN_PATH_DISTANCE; // Use squared distance
 let lastPathTrailPosition = new THREE.Vector3(Infinity, Infinity, Infinity); // Initialize far away
 
@@ -240,25 +253,34 @@ function initializePathTrail(parentObject, playerMeshRef) {
         console.error("initializePathTrail: Missing parentObject or playerMeshRef");
         return;
     }
-    const pathMaterial = new THREE.LineDashedMaterial({ 
-        color: 0xffffff, 
-        linewidth: 1, 
-        scale: 1, 
-        dashSize: config.MIN_PATH_DISTANCE * 0.6, // Adjust dash based on min dist
-        gapSize: config.MIN_PATH_DISTANCE * 0.4
-    });
-    const pathGeometry = new THREE.BufferGeometry();
+    // --- Make sure pathLine/Material/Geometry are initialized before use ---
+    if (!pathGeometry) pathGeometry = new THREE.BufferGeometry();
+    if (!pathLine) {
+        // Use the module-level pathMaterial
+        pathLine = new THREE.LineSegments(pathGeometry, pathMaterial); 
+        pathLine.frustumCulled = false;
+    }
+    // ------------------------------------------------------------------
+
     // Get initial player position for first point
     const initialWorldPos = new THREE.Vector3();
     playerMeshRef.getWorldPosition(initialWorldPos);
     const initialLocalPos = parentObject.worldToLocal(initialWorldPos);
-    pathTrailPoints.push(initialLocalPos.clone()); // Start with current position
+    pathPoints.length = 0; // Clear any previous points
+    pathPoints.push(initialLocalPos.clone()); // Start with current position
+    lastPathTrailPosition.copy(initialWorldPos); // Set initial last position
     
-    pathGeometry.setFromPoints(pathTrailPoints);
-    pathTrailLine = new THREE.Line(pathGeometry, pathMaterial);
-    pathTrailLine.computeLineDistances();
-    parentObject.add(pathTrailLine); 
-    console.log("Player INIT: Path trail initialized and added.");
+    // --- Update geometry and add line --- (CORRECT NAME)
+    pathGeometry.setFromPoints(pathPoints); // Set initial geometry
+    pathLine.computeLineDistances(); // Compute distances for dashes
+    if (!pathLine.parent) { // Only add if not already added
+        parentObject.add(pathLine); // Add the line to the parent (planet)
+        console.log("Player INIT: Path trail line added to parent.");
+    } else {
+        console.log("Player INIT: Path trail line already added.");
+    }
+    pathTrailNeedsUpdate = true; // Mark for update in next frame
+    // ----------------------------------
 }
 
 // Event Handlers
@@ -706,44 +728,46 @@ function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     playerState.wasBoostingLastFrame = isBoosting;
 }
 
-// Update Path Trail (Restored Logic)
+// Update Path Trail
 function updatePathTrail(playerMesh, homePlanet) {
-    if (!playerMesh || !homePlanet || !pathTrailLine) return;
+    // Add checks for initialized pathLine/Geometry (USING CORRECT VAR NAMES)
+    if (!playerMesh || !homePlanet || !pathLine || !pathGeometry) return; // CORRECT: Use pathLine and pathGeometry
 
     // Get player's current world position
     playerMesh.getWorldPosition(_playerWorldPos);
 
-    // Check distance from last point (using squared distance for efficiency)
+    // Check distance from last point
     if (_playerWorldPos.distanceToSquared(lastPathTrailPosition) > PATH_TRAIL_MIN_DISTANCE_SQ) {
         // Convert world position to homePlanet's local space
         const localPos = homePlanet.worldToLocal(_playerWorldPos.clone()); 
 
-        // Add new point
-        pathTrailPoints.push(localPos);
+        // Add new point to the EXPORTED array (USING CORRECT VAR NAME)
+        pathPoints.push(localPos); // CORRECT: Use pathPoints
 
         // Limit trail length
-        if (pathTrailPoints.length > PATH_TRAIL_MAX_POINTS) {
-            pathTrailPoints.shift(); // Remove the oldest point
+        if (pathPoints.length > PATH_TRAIL_MAX_POINTS) {
+            pathPoints.shift(); // Remove the oldest point
         }
 
         // Update last position
         lastPathTrailPosition.copy(_playerWorldPos);
         pathTrailNeedsUpdate = true;
-        // console.log(`[PathTrail] Added point. Total: ${pathTrailPoints.length}`); // DEBUG
     }
 
     // Update geometry if needed
     if (pathTrailNeedsUpdate) {
-        pathTrailLine.geometry.setFromPoints(pathTrailPoints);
-        pathTrailLine.geometry.computeBoundingSphere(); // Important for visibility/frustum culling
-        pathTrailLine.computeLineDistances(); // Required for dashed lines
+        // Use the single pathPoints array (USING CORRECT VAR NAMES)
+        pathLine.geometry.setFromPoints(pathPoints); // CORRECT: Use pathLine and pathPoints
+        pathLine.geometry.computeBoundingSphere(); 
+        // --- RE-ENABLE computeLineDistances for LineSegments ---
+        pathLine.computeLineDistances(); // CORRECT: Use pathLine
+        // -------------------------------------------------
         pathTrailNeedsUpdate = false;
-        // console.log("[PathTrail] Geometry updated."); // DEBUG
     }
 }
 
 // Export keyState and functions together at the end
-export { initPlayer, updatePlayer, updatePathTrail, updateBoostTrailGeometry, keyState }; 
+export { initPlayer, updatePlayer, updatePathTrail, keyState, pathPoints }; 
 
 // --- NEW: Boost Trail Geometry Update Function ---
 function updateBoostTrailGeometry() {

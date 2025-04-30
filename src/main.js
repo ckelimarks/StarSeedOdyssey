@@ -11,7 +11,7 @@ import * as config from './config.js';
 
 // Import modules
 import { initScene } from './scene.js';
-import { initPlayer, updatePlayer, updatePathTrail, keyState } from './player.js';
+import { initPlayer, updatePlayer, updatePathTrail, keyState, pathPoints } from './player.js';
 import { initPlanets, updateOrbits } from './planets.js';
 import { 
     initResources, 
@@ -26,7 +26,7 @@ import {
 } from './resources.js';
 import { initRocket, updateRocket, launchRocket, isRocketActive, isRocketStationed, placeRocketOnPad, hideRocketFromPad, rocketMesh } from './rocket.js';
 import { updateCamera } from './camera.js';
-import { initPal, updatePal } from './pal.js'; // ADDED Pal import
+import { initPal, updatePal, palMesh } from './pal.js'; // ADDED Pal import and palMesh export
 
 console.log("main.js: Script start");
 
@@ -36,6 +36,18 @@ let composer; // NEW: For post-processing
 let homePlanet;
 let planetsState = {}; // Populated by initPlanets
 let stats; // Declare stats globally
+
+// --- Mini-Map Components ---
+let mapScene, mapCamera, mapRenderer;
+let mapContainer;
+let mapPlanet;
+let mapPlayer, mapPal, mapRocket;
+let mapPathTrail; // NEW: For player path
+const MAP_PLANET_RADIUS = 50; // Radius for the map sphere
+const MAP_DOT_RADIUS = 1.5;   // Radius for the player/pal/rocket dots
+const MAP_CONE_HEIGHT = MAP_DOT_RADIUS * 3; // Height for the rocket cone
+const MAP_CAMERA_DISTANCE = MAP_PLANET_RADIUS * 2.5; // How far camera is from map center
+// -------------------------
 
 // --- State for Pending Launch ---
 let isLaunchPending = false;
@@ -79,6 +91,19 @@ const _tempColor = new THREE.Color(); // For color lerp
 const _planetFocusWorldPos = new THREE.Vector3();
 const _desiredCamPos = new THREE.Vector3();
 const terraformViewOffset = new THREE.Vector3(); // NEW: Store the calculated camera offset
+
+// --- NEW: Temp vectors for mini-map ---
+const _mapTargetPos = new THREE.Vector3();
+const _mapCamPos = new THREE.Vector3();
+const _mapPlayerWorldPos = new THREE.Vector3();
+const _mapPalWorldPos = new THREE.Vector3();
+const _mapRocketWorldPos = new THREE.Vector3();
+const _mapHomePlanetWorldPos = new THREE.Vector3(); // Store home planet world pos
+const _mapPlayerUp = new THREE.Vector3(); // Store player's up vector
+const _mapTargetUp = new THREE.Vector3(); // For orienting map objects
+const _mapOrientationQuat = new THREE.Quaternion();
+const _yAxis = new THREE.Vector3(0, 1, 0);
+// --------------------------------------
 
 // --- Debug Counter ---
 let spacebarPressCount = 0; 
@@ -289,6 +314,14 @@ async function init() {
     console.log("Main INIT: Starting initialization...");
 
     try {
+        // --- Step 0: Get UI Containers ---
+        mapContainer = document.getElementById('map-container');
+        if (!mapContainer) {
+            console.warn("Map container element not found. Mini-map will not be initialized.");
+            // Optionally throw an error or handle gracefully
+        }
+        // ---------------------------------
+
         // --- Step 1: Initialize Scene, Camera, Renderer, Lights ---
         const sceneObjs = initScene();
         scene = sceneObjs.scene;
@@ -354,6 +387,8 @@ async function init() {
         if (!homePlanet) {
             throw new Error("Main INIT: Home planet mesh not found after initPlanets!");
         }
+        // Store home planet world position (assuming it doesn't move)
+        homePlanet.getWorldPosition(_mapHomePlanetWorldPos);
         console.log("Main INIT: Planets initialized.");
 
         // --- Calculate Launch Pad Position (LOCAL coordinates) ---
@@ -381,6 +416,71 @@ async function init() {
         // --- Step 6: Initialize Rocket ---
         initRocket(scene, homePlanet);
         console.log("Main INIT: Rocket initialized.");
+
+        // --- Step 6.5: Initialize Mini-Map ---
+        if (mapContainer) {
+            console.log("Main INIT: Initializing Mini-Map...");
+            mapScene = new THREE.Scene();
+
+            // Map Renderer
+            mapRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // Use alpha if bg is transparent
+            mapRenderer.setSize(mapContainer.clientWidth, mapContainer.clientHeight);
+            mapRenderer.setPixelRatio(window.devicePixelRatio);
+            mapRenderer.setClearColor(0x000000, 0); // Transparent background
+            mapContainer.appendChild(mapRenderer.domElement);
+
+            // Map Camera (Perspective)
+            const mapAspect = mapContainer.clientWidth / mapContainer.clientHeight;
+            mapCamera = new THREE.PerspectiveCamera(50, mapAspect, 1, 1000);
+            mapCamera.position.set(0, MAP_CAMERA_DISTANCE, 0); // Initial position above
+            mapCamera.lookAt(mapScene.position); // Look at center
+
+            // Map Planet (Wireframe)
+            const mapPlanetGeo = new THREE.SphereGeometry(MAP_PLANET_RADIUS, 8, 6); // Reduced segments
+            const mapPlanetMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.5 }); // Make slightly transparent
+            mapPlanet = new THREE.Mesh(mapPlanetGeo, mapPlanetMat);
+            mapScene.add(mapPlanet);
+
+            // Map Player Dot
+            const mapPlayerGeo = new THREE.SphereGeometry(MAP_DOT_RADIUS, 8, 8);
+            const mapPlayerMat = new THREE.MeshBasicMaterial({ color: 0x00aaff }); // Blue
+            mapPlayer = new THREE.Mesh(mapPlayerGeo, mapPlayerMat);
+            mapPlayer.visible = false; // Initially hidden
+            mapScene.add(mapPlayer);
+
+            // Map Pal Dot
+            const mapPalGeo = new THREE.SphereGeometry(MAP_DOT_RADIUS, 8, 8);
+            const mapPalMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); // Green
+            mapPal = new THREE.Mesh(mapPalGeo, mapPalMat);
+            mapPal.visible = false; // Initially hidden
+            mapScene.add(mapPal);
+
+            // Map Rocket Cone
+            const mapRocketGeo = new THREE.ConeGeometry(MAP_DOT_RADIUS * 0.8, MAP_CONE_HEIGHT, 8); // radius, height, segments
+            const mapRocketMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            mapRocket = new THREE.Mesh(mapRocketGeo, mapRocketMat);
+            mapRocket.visible = false;
+            mapScene.add(mapRocket);
+
+            // --- NEW: Map Path Trail Line ---
+            const mapPathGeo = new THREE.BufferGeometry();
+            const mapPathPositions = new Float32Array(config.MAX_PATH_POINTS * 3);
+            mapPathGeo.setAttribute('position', new THREE.BufferAttribute(mapPathPositions, 3));
+            // --- TEMPORARY: Use LineBasicMaterial ---
+            const mapPathMat = new THREE.LineBasicMaterial({ 
+                color: 0x00aaff, // NEW: Blue color to match player dot
+                depthTest: false // KEEP: Don't hide behind sphere
+            });
+            // ----------------------------------------
+            mapPathTrail = new THREE.Line(mapPathGeo, mapPathMat); 
+            // -------------------------------------------
+            mapPathTrail.frustumCulled = false; // Prevent disappearing
+            mapScene.add(mapPathTrail);
+            // -------------------------------
+
+            console.log("Main INIT: Mini-Map initialized.");
+        }
+        // --------------------------------------
 
         // --- Step 7: Create UI ---
         createInventoryUI();
@@ -464,11 +564,11 @@ async function init() {
         document.body.appendChild(boostMeterContainer);
         // ---------------------------
         
-        // Create Debug Buttons
+        // --- Create Debug Buttons (Moved to Bottom Right) ---
         debugFillButton = document.createElement('button');
         debugFillButton.textContent = 'Debug: Fill Resources';
         debugFillButton.style.position = 'absolute';
-        debugFillButton.style.top = '60px';
+        debugFillButton.style.bottom = '100px'; // Stacked above others
         debugFillButton.style.right = '10px';
         debugFillButton.style.fontFamily = 'Helvetica, Arial, sans-serif';
             debugFillButton.addEventListener('click', handleDebugFillResources);
@@ -477,21 +577,21 @@ async function init() {
         debugInstantTerraformButton = document.createElement('button');
         debugInstantTerraformButton.textContent = 'Debug: Trigger Terraform';
         debugInstantTerraformButton.style.position = 'absolute';
-        debugInstantTerraformButton.style.top = '90px';
+        debugInstantTerraformButton.style.bottom = '70px'; // Stacked above enable btn
         debugInstantTerraformButton.style.right = '10px';
         debugInstantTerraformButton.style.fontFamily = 'Helvetica, Arial, sans-serif';
             debugInstantTerraformButton.addEventListener('click', handleDebugInstantTerraform);
         document.body.appendChild(debugInstantTerraformButton);
 
-        // NEW Debug Button: Enable Terraform
         debugEnableTerraformButton = document.createElement('button');
         debugEnableTerraformButton.textContent = 'Debug: Enable Terraform Btn';
         debugEnableTerraformButton.style.position = 'absolute';
-        debugEnableTerraformButton.style.top = '120px'; // Position below other debug buttons
+        debugEnableTerraformButton.style.bottom = '40px'; // Above boost meter
         debugEnableTerraformButton.style.right = '10px';
         debugEnableTerraformButton.style.fontFamily = 'Helvetica, Arial, sans-serif';
         debugEnableTerraformButton.addEventListener('click', handleDebugEnableTerraformButton);
         document.body.appendChild(debugEnableTerraformButton);
+        // -----------------------------------------------------
 
         console.log("Main INIT: UI created.");
 
@@ -519,6 +619,170 @@ async function init() {
 
 // Get the delta time for physics updates
 const clock = new THREE.Clock();
+
+// --- Function to update mini-map ---
+function updateMiniMap() {
+    if (!mapScene || !mapRenderer || !homePlanet || !window.playerState?.mesh) {
+        return; // Not ready yet
+    }
+
+    const mainPlanetRadius = homePlanet.geometry.parameters.radius; // Get actual radius
+
+    // Update Player Dot
+    if (window.playerState.mesh) {
+        window.playerState.mesh.getWorldPosition(_mapPlayerWorldPos);
+        // Position relative to home planet center, normalize, scale to map radius
+        _mapTargetPos.subVectors(_mapPlayerWorldPos, _mapHomePlanetWorldPos).normalize().multiplyScalar(MAP_PLANET_RADIUS);
+        mapPlayer.position.copy(_mapTargetPos);
+        mapPlayer.visible = true;
+
+        // Update Map Camera Position & Orientation
+        // Use player's relative position for camera offset
+        _mapCamPos.copy(_mapTargetPos).normalize().multiplyScalar(MAP_CAMERA_DISTANCE);
+        mapCamera.position.copy(_mapCamPos);
+
+        // Get player's up vector in world space to orient camera
+        _mapPlayerUp.set(0, 1, 0).applyQuaternion(window.playerState.mesh.quaternion).normalize();
+        mapCamera.up.copy(_mapPlayerUp); // Set camera's up direction
+
+        mapCamera.lookAt(mapScene.position); // Look at map center (0,0,0)
+
+    } else {
+        mapPlayer.visible = false;
+    }
+
+    // Update Pal Dot
+    if (palMesh && palMesh.parent) { // Check if pal exists and is added to scene graph
+        palMesh.getWorldPosition(_mapPalWorldPos);
+        _mapTargetPos.subVectors(_mapPalWorldPos, _mapHomePlanetWorldPos).normalize().multiplyScalar(MAP_PLANET_RADIUS);
+        mapPal.position.copy(_mapTargetPos);
+        mapPal.visible = true;
+    } else {
+        mapPal.visible = false;
+    }
+
+    // Update Rocket Cone
+    let rocketVisible = false;
+    if (rocketMesh) {
+         if (isRocketActive()) { // Flying
+             rocketMesh.getWorldPosition(_mapRocketWorldPos);
+             _mapTargetPos.subVectors(_mapRocketWorldPos, _mapHomePlanetWorldPos).normalize();
+             rocketVisible = true;
+         } else if (isRocketStationed()) { // On pad
+              _launchPadWorldPos.copy(_launchPadLocalPos).applyMatrix4(homePlanet.matrixWorld);
+              _mapTargetPos.subVectors(_launchPadWorldPos, _mapHomePlanetWorldPos).normalize();
+              rocketVisible = true;
+         }
+    }
+
+    mapRocket.visible = rocketVisible;
+    if (rocketVisible) {
+        mapRocket.position.copy(_mapTargetPos).multiplyScalar(MAP_PLANET_RADIUS + MAP_CONE_HEIGHT * 0.5); // Position on sphere + half height offset
+        // Orient the cone to point outwards
+        _mapTargetUp.copy(_mapTargetPos); // Direction from center is the up vector
+        _mapOrientationQuat.setFromUnitVectors(_yAxis, _mapTargetUp); // Rotate default Y+ up to point outwards
+        mapRocket.quaternion.copy(_mapOrientationQuat);
+    }
+
+    // --- NEW: Update Map Path Trail ---
+    if (mapPathTrail && pathPoints) {
+        // --- DEBUG LOGGING ---
+        console.log(`[Map Path Debug] pathPoints.length: ${pathPoints.length}`);
+        // ---------------------
+
+        // --- Calculate drawable segments and starting index --- 
+        const numAvailablePoints = pathPoints.length;
+        const maxDrawableVertices = Math.min(numAvailablePoints, config.MAX_PATH_POINTS); // How many vertices fit in config
+        const numDrawableSegments = Math.floor(maxDrawableVertices / 2);
+        const startIndexInPathPoints = Math.max(0, numAvailablePoints - numDrawableSegments * 2); // Index in pathPoints to start reading from
+        const numMapVerticesToDraw = numDrawableSegments * 2; // Vertices to actually draw in the map buffer
+        // -----------------------------------------------------
+
+        // --- DEBUG LOGGING ---
+        console.log(`[Map Path Debug] numDrawableSegments: ${numDrawableSegments}, startIndexInPathPoints: ${startIndexInPathPoints}, numMapVerticesToDraw: ${numMapVerticesToDraw}`);
+        // ---------------------
+
+        // --- Create a new array with the exact size needed ---
+        // const numMapVertices = numDrawableSegments * 2; // OLD calculation
+        const mapPositionsData = new Float32Array(numMapVerticesToDraw * 3); 
+        let mapPointIndex = 0; // Index for the new array (mapPositionsData)
+        // ----------------------------------------------------
+
+        // --- Loop over the DRAWABLE segments using the calculated start index --- 
+        for (let i = 0; i < numDrawableSegments; i++) {
+            const p1_index = startIndexInPathPoints + i * 2;
+            const p2_index = startIndexInPathPoints + i * 2 + 1;
+
+            // Boundary check (shouldn't be needed with correct logic, but safe)
+            if (p1_index >= pathPoints.length || p2_index >= pathPoints.length) {
+                console.warn(`[Map Path Debug] Index out of bounds: p1=${p1_index}, p2=${p2_index}, length=${pathPoints.length}`);
+                continue;
+            }
+
+            const p1_local = pathPoints[p1_index];
+            const p2_local = pathPoints[p2_index];
+        // -----------------------------------------------------------------------
+
+            if (!p1_local || !p2_local) continue; // Skip if points are missing
+
+            // --- Convert local path points back to WORLD space --- 
+            const p1_world = _vec3.copy(p1_local).applyMatrix4(homePlanet.matrixWorld);
+            const p2_world = _vec3.copy(p2_local).applyMatrix4(homePlanet.matrixWorld);
+            // ------------------------------------------------------
+
+            // Calculate map position for p1 (relative to map center, using WORLD pos)
+            _mapTargetPos.copy(p1_world).sub(_mapHomePlanetWorldPos).normalize().multiplyScalar(MAP_PLANET_RADIUS);
+            mapPositionsData[mapPointIndex++] = _mapTargetPos.x;
+            mapPositionsData[mapPointIndex++] = _mapTargetPos.y;
+            mapPositionsData[mapPointIndex++] = _mapTargetPos.z;
+
+            // Calculate map position for p2 (relative to map center, using WORLD pos)
+            _mapTargetPos.copy(p2_world).sub(_mapHomePlanetWorldPos).normalize().multiplyScalar(MAP_PLANET_RADIUS);
+            mapPositionsData[mapPointIndex++] = _mapTargetPos.x;
+            mapPositionsData[mapPointIndex++] = _mapTargetPos.y;
+            mapPositionsData[mapPointIndex++] = _mapTargetPos.z;
+
+            // --- DEBUG LOGGING (first segment only) ---
+            if (i === 0) {
+                console.log(`[Map Path Debug] First segment drawn: p1_map(${_mapTargetPos.x.toFixed(1)}, ${_mapTargetPos.y.toFixed(1)}, ${_mapTargetPos.z.toFixed(1)}) (reading from pathPoints index ${p1_index})`);
+            }
+            // -----------------------------------------
+        }
+
+        // --- Get the attribute reference ---
+        const mapPositionsAttribute = mapPathTrail.geometry.attributes.position;
+
+        // --- Copy the calculated data into the attribute's array --- 
+        mapPositionsAttribute.array.set(mapPositionsData);
+        // ---------------------------------------------------------
+
+        // --- Mark the attribute for update --- 
+        mapPositionsAttribute.needsUpdate = true; 
+        // -----------------------------------
+
+        // --- Set Draw Range (using calculated vertex count) ---
+        mapPathTrail.geometry.setDrawRange(0, numMapVerticesToDraw); 
+        // ----------------------
+
+        // --- Compute distances ONLY if using Dashed Material ---
+        // mapPathTrail.computeLineDistances(); // REMOVED for LineBasicMaterial
+        // -----------------------------------------------------
+        
+        mapPathTrail.geometry.computeBoundingSphere(); // Update bounding sphere
+
+    } else {
+        // Clear the line if pathPoints is empty or null
+        // --- Simplify clearing logic ---
+        if (mapPathTrail && mapPathTrail.geometry.drawRange.count > 0) { // Check if already drawing something
+            mapPathTrail.geometry.setDrawRange(0, 0); // Draw nothing
+            mapPathTrail.geometry.attributes.position.needsUpdate = true; // Need to update buffer when clearing
+            console.log("[Map Path Debug] Clearing map path trail.");
+        }
+        // ------------------------------
+    }
+    // -------------------------------
+}
+// -------------------------------------
 
 function animate() {
     stats.begin(); // START FPS counter
@@ -795,34 +1059,65 @@ function animate() {
     // --- Update UI --- (Moved together)
     updateInventoryDisplay();
     updateBoostMeterUI(); // Call boost meter update
-    // Potentially move other UI updates like launch prompt here too
-    // ... (Launch Pad UI logic) ... 
+
+    // --- Update Mini-Map ---
+    updateMiniMap(); // Call the map update function
+    // -----------------------
 
     // --- Render Scene --- Render using composer
     if (composer && scene && camera) { // Check composer exists
         stats.end(); // END FPS counter before render
-        composer.render(deltaTime); // Use composer
+        // Render main scene
+        renderer.setRenderTarget(null); // Ensure rendering to canvas
+        renderer.clear(); // Clear main renderer (composer might handle this)
+        composer.render(deltaTime); // Use composer for main scene
+
+        // Render map scene separately
+        if (mapRenderer && mapScene && mapCamera) {
+            renderer.clearDepth(); // Clear depth buffer before rendering map on top
+            mapRenderer.render(mapScene, mapCamera);
+        }
+    } else if (renderer && scene && camera) { // Fallback if composer fails?
+         console.warn("Composer not ready, attempting direct render.");
+         renderer.render(scene, camera);
+         if (mapRenderer && mapScene && mapCamera) {
+             renderer.clearDepth();
+             mapRenderer.render(mapScene, mapCamera);
+         }
+         stats.end();
     }
 }
 
-// Add composer resize to window resize handler
+// Add composer AND map resize to window resize handler
 function onWindowResize() {
-    if (camera && renderer) {
-        const width = window.innerWidth;
-        const height = window.innerHeight;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
 
+    // Resize main renderer and camera
+    if (camera && renderer) {
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
-
         renderer.setSize(width, height);
-        if (composer) { // Resize composer if it exists
+        if (composer) {
             composer.setSize(width, height);
         }
+    }
+
+    // Resize map renderer and camera
+    if (mapContainer && mapRenderer && mapCamera) {
+        const mapWidth = mapContainer.clientWidth;
+        const mapHeight = mapContainer.clientHeight;
+
+        mapRenderer.setSize(mapWidth, mapHeight);
+        mapCamera.aspect = mapWidth / mapHeight;
+        mapCamera.updateProjectionMatrix();
     }
 }
 
 // Start initialization when DOM is ready
 window.addEventListener('DOMContentLoaded', () => {
     console.log('Event: DOM fully loaded and parsed. Calling main init()...');
+    // Add listener BEFORE init
+    window.addEventListener('resize', onWindowResize);
     init();
 }); 

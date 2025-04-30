@@ -9,7 +9,7 @@ export const FRICTION = 0.98; // <<< MUST be less than 1 for friction
 export const POLE_THRESHOLD = 1e-8;
 
 // Path Trail Constants
-export const MAX_PATH_POINTS = 200;
+export const MAX_PATH_POINTS = 1500; // INCREASED from 200
 export const MIN_PATH_DISTANCE = 0.5;
 
 // Object Sizes & Distances
