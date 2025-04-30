@@ -1114,7 +1114,7 @@ function loadAudio(listener) {
         audioListenerRef = listener; 
         const loader = new THREE.AudioLoader();
         let soundsLoaded = 0;
-        const totalSoundsToLoad = 14; // <<< INCREMENTED total sound count
+        const totalSoundsToLoad = 16; // <<< INCREMENTED total sound count (from 15)
         const loadedSounds = {}; 
 
         const checkAllLoaded = () => {
@@ -1341,7 +1341,7 @@ function loadAudio(listener) {
                 checkAllLoaded();
             }, 
             undefined, 
-            (err) => onError('sfx/collect-sound.mp3', err)
+            (err) => onError('sfx/collect-sound.wav', err)
         );
         // -----------------------------------
 
@@ -1358,6 +1358,38 @@ function loadAudio(listener) {
             }, 
             undefined, 
             (err) => onError('sfx/terraform-ready-sound.mp3', err)
+        );
+        // -----------------------------------
+
+        // --- Load Theme Music (Add Back) ---
+        loader.load('sfx/StarSeedTheme.mp3', 
+            (buffer) => {
+                const themeMusicSound = new THREE.Audio(audioListenerRef); 
+                themeMusicSound.setBuffer(buffer);
+                themeMusicSound.setLoop(true); 
+                themeMusicSound.setVolume(0.4); 
+                loadedSounds.themeMusicSound = themeMusicSound;
+                console.log("Theme music loaded."); 
+                checkAllLoaded();
+            }, 
+            undefined, // onProgress
+            (err) => onError('sfx/StarSeedTheme.mp3', err)
+        );
+        // -----------------------------------
+
+        // --- Load Terraform Success Sound (NEW) ---
+        loader.load('sfx/terraformsucces.mp3', 
+            (buffer) => {
+                const terraformSuccessSound = new THREE.Audio(audioListenerRef); 
+                terraformSuccessSound.setBuffer(buffer);
+                terraformSuccessSound.setLoop(false); // Non-looping
+                terraformSuccessSound.setVolume(0.7); // Adjust volume as needed
+                loadedSounds.terraformSuccessSound = terraformSuccessSound; // Add to the object
+                console.log("Terraform success sound loaded."); 
+                checkAllLoaded();
+            }, 
+            undefined, // onProgress
+            (err) => onError('sfx/terraformsucces.mp3', err)
         );
         // -----------------------------------
 
@@ -1430,11 +1462,48 @@ function stopBoostRiseSound() {
 }
 // --- END NEW Boost Sound Functions --- 
 
+// --- NEW Audio Helper Functions ---
+function playThemeMusic() {
+    // --- Access sound via window.loadedSounds --- 
+    const sound = window.loadedSounds?.themeMusicSound;
+    // -------------------------------------------
+    if (sound && sound.buffer && !sound.isPlaying) {
+        if (sound.context.state === 'running') {
+            console.log("Playing theme music...");
+            sound.play();
+        } else {
+            console.warn("Cannot play theme music - audio context not running.");
+        }
+    } else if (sound && sound.isPlaying) {
+        console.log("Theme music already playing.");
+    } else {
+        console.warn("Theme music not loaded or ready.");
+    }
+}
+
+function playTerraformSuccessSound() {
+    // --- Access sound via window.loadedSounds --- 
+    const sound = window.loadedSounds?.terraformSuccessSound;
+    // -------------------------------------------
+    if (sound && sound.buffer) {
+        if (sound.isPlaying) sound.stop(); // Stop previous if any
+        if (sound.context.state === 'running') {
+            console.log("Playing terraform success sound...");
+            sound.play();
+        } else {
+            console.warn("Cannot play terraform success sound - audio context not running.");
+        }
+    } else {
+        console.warn("Terraform success sound not loaded or ready.");
+    }
+}
+// ---------------------------------
+
 // --- Resource Management Functions ---
 // export function hasResources(seedCost, fuelCost) { ... } // Check happens in main.js
 // export function spendResources(seedCost, fuelCost) { ... } // Deduction happens in main.js/rocket.js
 
-// Exports
+// Exports (Ensure this is the LAST thing in the file)
 export {
     // Core resource functions
     initResources,
@@ -1463,6 +1532,10 @@ export {
     playPlayerJumpSound,
     playPlayerLandSound,
     playInventoryFullSound,
-    playTerraformReadySound // NEW Export
+    playTerraformReadySound, // NEW Export
+    // --- Add new exports --- 
+    playThemeMusic,
+    playTerraformSuccessSound
+    // -----------------------
     // Add any other functions from this module that need exporting
 }; 

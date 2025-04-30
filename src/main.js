@@ -22,7 +22,11 @@ import {
     playRocketLaunchSound, 
     loadAudio,
     playTerraformReadySound, 
-    playInventoryFullSound // <<< Import Inventory Full Sound Player
+    playInventoryFullSound, // <<< Import Inventory Full Sound Player
+    // --- NEW Theme/Success Imports ---
+    playThemeMusic,
+    playTerraformSuccessSound
+    // ---------------------------------
 } from './resources.js';
 import { initRocket, updateRocket, launchRocket, isRocketActive, isRocketStationed, placeRocketOnPad, hideRocketFromPad, rocketMesh } from './rocket.js';
 import { updateCamera } from './camera.js';
@@ -350,10 +354,9 @@ async function init() {
             const loadedSounds = await loadAudio(audioListener); // Get the returned object
             console.log("Main INIT: Audio loaded successfully.");
             
-            // Store for global access if needed by other modules (like player.js for rolling sound)
             window.loadedSounds = loadedSounds; 
 
-            // Start ambient sound now using the returned reference
+            // --- Start ambient sound --- 
             if (loadedSounds.ambientSound && loadedSounds.ambientSound.buffer && !loadedSounds.ambientSound.isPlaying) {
                  if (loadedSounds.ambientSound.context.state === 'running') {
                      console.log("Main INIT: Starting ambient sound.");
@@ -362,12 +365,16 @@ async function init() {
                     console.warn("Main INIT: Ambient sound loaded, but audio context not running, cannot play.");
                  } 
             } else {
-                 // This condition should ideally not be met now if loading was successful
                  console.warn("Main INIT: Ambient sound object or buffer not ready after loadAudio resolved? (Using returned object)");
             }
+            // --------------------------
+            
+            // --- NEW: Play Theme Music --- 
+            playThemeMusic(); // Call the helper function
+            // -----------------------------
+
         } catch (error) {
             console.error("Main INIT: Failed to load audio. Gameplay might be affected.", error);
-            // Decide how to proceed - maybe show an error message?
         }
         // -------------------------------------------------------
 
@@ -517,14 +524,22 @@ async function init() {
         missionStatusElement = document.createElement('div');
         missionStatusElement.id = 'mission-status';
         missionStatusElement.style.position = 'absolute';
-        missionStatusElement.style.bottom = '10px'; // Positioned at the very bottom
-        missionStatusElement.style.left = '10px';
-        missionStatusElement.style.color = '#ffcc00'; // Yellow/gold color
+        // --- Center Styling --- 
+        missionStatusElement.style.top = '50%';
+        missionStatusElement.style.left = '50%';
+        missionStatusElement.style.transform = 'translate(-50%, -50%)';
+        missionStatusElement.style.padding = '20px'; // Added padding
+        missionStatusElement.style.backgroundColor = 'rgba(0, 0, 0, 0.6)'; // Added background
+        missionStatusElement.style.borderRadius = '8px'; // Added border radius
+        missionStatusElement.style.color = '#ffcc00'; // Initial color (will be changed on success)
         missionStatusElement.style.fontFamily = 'Helvetica, Arial, sans-serif';
-        missionStatusElement.style.fontSize = '16px';
+        missionStatusElement.style.fontSize = '32px'; // Increased font size
         missionStatusElement.style.fontWeight = 'bold';
+        missionStatusElement.style.textAlign = 'center'; // Added text align
         missionStatusElement.style.textShadow = '1px 1px 2px black';
-        missionStatusElement.textContent = 'Mission: Terraform Infernia'; // Initial message
+        missionStatusElement.style.zIndex = '101'; // Ensure it's on top
+        missionStatusElement.style.display = 'none'; // Start hidden
+        missionStatusElement.textContent = ''; // Initial message cleared, set dynamically
         document.body.appendChild(missionStatusElement);
 
         // NEW: Create Boost Meter UI
@@ -692,7 +707,7 @@ function updateMiniMap() {
         // -------------------------------------------------------
 
         // --- DEBUG LOGGING ---
-        console.log(`[Map Path Debug] pathPoints.length: ${pathPoints.length}`);
+       // console.log(`[Map Path Debug] pathPoints.length: ${pathPoints.length}`);
         // ---------------------
 
         // --- Calculate drawable segments and starting index --- 
@@ -704,7 +719,7 @@ function updateMiniMap() {
         // -----------------------------------------------------
 
         // --- DEBUG LOGGING ---
-        console.log(`[Map Path Debug] numDrawableSegments: ${numDrawableSegments}, startIndexInPathPoints: ${startIndexInPathPoints}, numMapVerticesToDraw: ${numMapVerticesToDraw}`);
+        //console.log(`[Map Path Debug] numDrawableSegments: ${numDrawableSegments}, startIndexInPathPoints: ${startIndexInPathPoints}, numMapVerticesToDraw: ${numMapVerticesToDraw}`);
         // ---------------------
 
         // --- Create a new array with the exact size needed ---
@@ -720,7 +735,7 @@ function updateMiniMap() {
 
             // Boundary check (shouldn't be needed with correct logic, but safe)
             if (p1_index >= pathPoints.length || p2_index >= pathPoints.length) {
-                console.warn(`[Map Path Debug] Index out of bounds: p1=${p1_index}, p2=${p2_index}, length=${pathPoints.length}`);
+                //console.warn(`[Map Path Debug] Index out of bounds: p1=${p1_index}, p2=${p2_index}, length=${pathPoints.length}`);
                 continue;
             }
 
@@ -749,7 +764,7 @@ function updateMiniMap() {
 
             // --- DEBUG LOGGING (first segment only) ---
             if (i === 0) {
-                console.log(`[Map Path Debug] First segment drawn: p1_map(${_mapTargetPos.x.toFixed(1)}, ${_mapTargetPos.y.toFixed(1)}, ${_mapTargetPos.z.toFixed(1)}) (reading from pathPoints index ${p1_index})`);
+                //console.log(`[Map Path Debug] First segment drawn: p1_map(${_mapTargetPos.x.toFixed(1)}, ${_mapTargetPos.y.toFixed(1)}, ${_mapTargetPos.z.toFixed(1)}) (reading from pathPoints index ${p1_index})`);
             }
             // -----------------------------------------
         }
@@ -781,7 +796,7 @@ function updateMiniMap() {
         if (mapPathTrail && mapPathTrail.geometry.drawRange.count > 0) { // Check if already drawing something
             mapPathTrail.geometry.setDrawRange(0, 0); // Draw nothing
             mapPathTrail.geometry.attributes.position.needsUpdate = true; // Need to update buffer when clearing
-            console.log("[Map Path Debug] Clearing map path trail.");
+            //console.log("[Map Path Debug] Clearing map path trail.");
         }
         // ------------------------------
     }
@@ -847,6 +862,11 @@ function animate() {
                 if (alpha >= 1.0) {
                     console.log(`ColorLerp: Terraforming color complete for ${planetName}.`);
                     isTerraforming[planetName] = false; 
+
+                    // --- REMOVE Terraform Success Sound Call HERE --- 
+                    // playTerraformSuccessSound(); 
+                    // --------------------------------------------
+
                     // Show message
                     if (missionStatusElement) {
                         missionStatusElement.textContent = `${planetName} Terraformed Successfully!`;
@@ -1031,6 +1051,9 @@ function animate() {
         if (!isCameraInTerraformPosition && distSq < arrivalThresholdSq) { 
              console.log(`CameraFocus: Camera arrived at focus point (distSq: ${distSq.toFixed(2)}).`); 
              isCameraInTerraformPosition = true;
+             // --- Play Terraform Success Sound ON CAMERA ARRIVAL --- 
+             playTerraformSuccessSound(); 
+             // -----------------------------------------------------
              const targetPlanetName = cameraFocusTarget.name;
              if (planetsState[targetPlanetName]) {
                 isTerraforming[targetPlanetName] = true;
