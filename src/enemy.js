@@ -2,12 +2,14 @@ import * as THREE from 'https://esm.sh/three@0.128.0';
 import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
 import * as config from './config.js'; // Import config for potential future use
 import { getRandomPositionOnPlanet } from './utils.js'; // <<< NEW: Import utility
+import { playAppropriateMusic } from './resources.js'; // <<< IMPORT MUSIC FUNCTION
 
 // --- Enemy States Enum ---
 const EnemyAIState = {
     PATROLLING: 'PATROLLING',
     HUNTING: 'HUNTING',
-    SCANNING: 'SCANNING' // <<< NEW STATE
+    SCANNING: 'SCANNING', // <<< NEW STATE
+    SLEEPING: 'SLEEPING' // <<< NEW STATE
 };
 // -----------------------
 
@@ -24,6 +26,9 @@ const SPOTLIGHT_SENSITIVITY_AT_MIN_DIST = 1.0; // <<< NEW: Sensitivity multiplie
 const HUNT_PREDICTION_ERROR_DISTANCE = 2.0; // <<< NEW: How much inaccuracy when hunting
 const SPOTLIGHT_TRACKING_SPEED = 6.0; // <<< INCREASED AGAIN
 const DETECTION_SOUND_COOLDOWN = 3.0; // <<< NEW: Cooldown for roar/siren sounds
+const PATROL_DURATION = 30.0; // <<< ADJUSTED for testing
+const SLEEP_DURATION = 30.0;  // <<< ADJUSTED for testing
+const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // <<< NEW: Added for music fade logic
 // ------------------------
 
 // Module-level variables
@@ -58,10 +63,14 @@ let enemyState = {
     // --- Sound State ---
     isMovingSoundPlaying: false, // Track if the movement sound is active
     isScanningSoundPlaying: false, // <<< NEW: Track if scanning sound is active
+    isFadingToSleepMusic: false, // <<< NEW
+    isFadingToAwakeMusic: false, // <<< NEW
     // ---------------
     statusText: "Initializing", // Current action description
     lastDetectionSoundTime: 0, // <<< NEW: Timestamp for cooldown
     // --------------------
+    patrolTimer: 0, // <<< NEW: Timer for patrol duration
+    sleepTimer: 0, // <<< NEW: Timer for sleep duration
 };
 // ------------------
 
@@ -403,6 +412,11 @@ export function updateEnemy(deltaTime, playerMesh) {
     const PATROL_NEW_TARGET_TIME = 5.0; // Seconds before picking new target even if not reached
     const PATROL_MAX_DISTANCE = 20.0; // How far away to pick patrol points
 
+    // --- Get Sound References (Declare once) --- <<< NEW
+    const movementSound = window.loadedSounds?.enemyMovementSound;
+    const scanningSound = window.loadedSounds?.enemyScanningSound;
+    // ------------------------------------------
+
     // --- Get World Positions --- (Needed regardless of state for orientation/clamping)
     enemyMesh.getWorldPosition(_enemyWorldPos);
     homePlanetRef.getWorldPosition(_planetWorldPos); // Usually 0,0,0 but good practice
@@ -422,11 +436,6 @@ export function updateEnemy(deltaTime, playerMesh) {
     let targetWorldPos = null; // Where the enemy should move towards in world space
     const FADE_DURATION = 0.5; // Animation fade duration
 
-    // --- Get Sound References --- (Do this once)
-    const movementSound = window.loadedSounds?.enemyMovementSound;
-    const scanningSound = window.loadedSounds?.enemyScanningSound;
-    // ---------------------------
-
     // --- Handle State Transitions and Actions ---
     switch (enemyState.currentState) {
         case EnemyAIState.PATROLLING:
@@ -439,11 +448,53 @@ export function updateEnemy(deltaTime, playerMesh) {
             // -----------------------------------------
 
             // Set default status for patrolling
-            enemyState.statusText = `Patrolling (Point ${enemyState.currentPatrolPointIndex})`;
+            const remainingPatrolTime = Math.max(0, PATROL_DURATION - enemyState.patrolTimer);
+            const minutes = Math.floor(remainingPatrolTime / 60);
+            const seconds = Math.floor(remainingPatrolTime % 60);
+            enemyState.statusText = `Patrolling (${minutes}:${seconds.toString().padStart(2, '0')} left)`;
+
+            // --- Patrol Timer / Pre-Sleep Fade Check --- <<< MODIFIED
+            enemyState.patrolTimer += deltaTime;
+            // Start fade 4 seconds before sleeping
+            if (!enemyState.isFadingToSleepMusic && remainingPatrolTime <= MUSIC_ANTICIPATION_FADE_DURATION) {
+                console.log(`[Music] Approaching sleep time, starting fade to normal theme.`);
+                playAppropriateMusic(false); // Fade to normal (sleep) music
+                enemyState.isFadingToSleepMusic = true;
+            }
+            // Actual transition to sleep
+            if (enemyState.patrolTimer >= PATROL_DURATION) {
+                console.log(`ENEMY STATE: Patrol duration (${PATROL_DURATION}s) reached. Entering SLEEPING.`);
+                enemyState.currentState = EnemyAIState.SLEEPING;
+                enemyState.patrolTimer = 0;
+                enemyState.sleepTimer = 0;
+                enemyState.statusText = "Sleeping"; // Initial status, timer updates below
+                // playAppropriateMusic(false); // <<< REMOVED from here
+                // Stop sounds, dim light, idle anim
+                if (movementSound && enemyState.isMovingSoundPlaying) movementSound.stop();
+                enemyState.isMovingSoundPlaying = false;
+                if (enemyState.spotLight) enemyState.spotLight.intensity = 0.1;
+                if (enemyState.actions.walk) enemyState.actions.walk.fadeOut(FADE_DURATION);
+                if (enemyState.actions.idle) {
+                    enemyState.actions.idle.fadeIn(FADE_DURATION);
+                    setTimeout(() => {
+                        if (enemyState.currentState === EnemyAIState.SLEEPING) {
+                            enemyState.actions.idle.timeScale = 0;
+                            console.log("[Enemy Anim] Paused idle animation for sleep.");
+                        }
+                    }, FADE_DURATION * 1000);
+                }
+                enemyVelocity.set(0,0,0);
+                targetWorldPos = null;
+                enemyState.isFadingToAwakeMusic = false; // Reset other flag on state entry
+                break; 
+            }
+            // --------------------------
 
             // --- Vision Check ---
             if (!window.debugDisableHuntMode && playerMesh && isPlayerInSpotlight(playerMesh)) {
                 console.log("ENEMY STATE: Player detected! Switching to HUNTING.");
+                enemyState.patrolTimer = 0; 
+                enemyState.isFadingToSleepMusic = false; // <<< Reset flag if hunt starts
                 enemyState.currentState = EnemyAIState.HUNTING;
                 enemyState.timeInSpotlight = 0; // Reset timer (still good practice)
                 enemyState.timeSincePlayerSeen = 0; // Reset hunt give up timer too
@@ -510,7 +561,7 @@ export function updateEnemy(deltaTime, playerMesh) {
             break;
 
         case EnemyAIState.SCANNING:
-            enemyState.statusText = "Scanning"; // Update status
+            enemyState.statusText = `Scanning (${(enemyState.scanDuration - enemyState.scanTimer).toFixed(1)}s left)`;
             // --- Ensure Scanning Sound is Playing ---
             if (scanningSound && !enemyState.isScanningSoundPlaying && scanningSound.context.state === 'running') {
                  scanningSound.play();
@@ -530,10 +581,11 @@ export function updateEnemy(deltaTime, playerMesh) {
                     scanningSound.stop();
                     enemyState.isScanningSoundPlaying = false;
                 }
+                enemyState.patrolTimer = 0; // <<< Reset patrol timer when hunt starts during scan
                 enemyState.currentState = EnemyAIState.HUNTING;
                 enemyState.timeInSpotlight = 0; // Reset timer
                 enemyState.timeSincePlayerSeen = 0; // Reset hunt give up timer
-                enemyState.statusText = "Hunting (Player Visible)"; // Update status
+                enemyState.statusText = "Hunting (Target Visible)";
 
                 // Fade from idle to walk
                 if (enemyState.actions.idle) enemyState.actions.idle.fadeOut(FADE_DURATION);
@@ -556,7 +608,7 @@ export function updateEnemy(deltaTime, playerMesh) {
                 enemyState.currentState = EnemyAIState.PATROLLING;
                 // targetWorldPos = null; // No need to set this, PATROLLING will calculate next point
                 enemyState.timeInSpotlight = 0; // Reset hunt timer when returning to patrol
-                enemyState.statusText = `Patrolling (Point ${enemyState.currentPatrolPointIndex})`; // Update status
+                enemyState.statusText = `Patrolling (${Math.max(0, PATROL_DURATION - enemyState.patrolTimer).toFixed(1)}s left)`;
                 // Fade back to walk animation
                 if (enemyState.actions.idle) enemyState.actions.idle.fadeOut(FADE_DURATION);
                 if (enemyState.actions.walk) enemyState.actions.walk.fadeIn(FADE_DURATION);
@@ -628,7 +680,7 @@ export function updateEnemy(deltaTime, playerMesh) {
                 // -------------------------------------------
 
                 enemyState.timeInSpotlight = 0; // Reset hunt delay timer if seen while hunting
-                enemyState.statusText = "Hunting (Player Visible)"; // Update status
+                enemyState.statusText = "Hunting (Target Visible)";
                 // Ensure walk animation is playing
                 if (enemyState.actions.idle?.getEffectiveWeight() === 1.0) enemyState.actions.idle.fadeOut(FADE_DURATION);
                 if (enemyState.actions.walk && enemyState.actions.walk?.getEffectiveWeight() === 0.0) enemyState.actions.walk.fadeIn(FADE_DURATION);
@@ -655,7 +707,7 @@ export function updateEnemy(deltaTime, playerMesh) {
                 if (enemyState.timeSincePlayerSeen < HUNT_GIVE_UP_TIME) {
                     // Continue hunting towards last known position
                     targetWorldPos = enemyState.lastKnownPlayerWorldPos; // Target LAST known position
-                    enemyState.statusText = `Hunting (Searching last known)`; // Update status
+                    enemyState.statusText = `Hunting (Searching)`;
                     // Keep walking animation
                     if (enemyState.actions.idle?.getEffectiveWeight() === 1.0) enemyState.actions.idle.fadeOut(FADE_DURATION);
                     if (enemyState.actions.walk && enemyState.actions.walk?.getEffectiveWeight() === 0.0) enemyState.actions.walk.fadeIn(FADE_DURATION);
@@ -663,11 +715,12 @@ export function updateEnemy(deltaTime, playerMesh) {
                     // Give up hunting!
                     console.log(`ENEMY STATE: Lost player for ${HUNT_GIVE_UP_TIME}s. Giving up hunt, returning to PATROLLING.`);
                     enemyState.currentState = EnemyAIState.PATROLLING;
+                    enemyState.patrolTimer = 0; // <<< Reset patrol timer when returning to patrol
                     // targetWorldPos = null; // No need to set, PATROLLING handles it
                     enemyState.lastKnownPlayerWorldPos.set(0, 0, 0); 
                     enemyState.timeSincePlayerSeen = 0; 
                     enemyState.timeInSpotlight = 0; // Reset hunt delay timer
-                    enemyState.statusText = `Patrolling (Point ${enemyState.currentPatrolPointIndex})`; // Update status
+                    enemyState.statusText = `Patrolling (${Math.max(0, PATROL_DURATION - enemyState.patrolTimer).toFixed(1)}s left)`;
                     // Ensure walk animation is playing for patrol start
                     if (enemyState.actions.idle?.getEffectiveWeight() === 1.0) enemyState.actions.idle.fadeOut(FADE_DURATION);
                     if (enemyState.actions.walk && enemyState.actions.walk?.getEffectiveWeight() === 0.0) enemyState.actions.walk.fadeIn(FADE_DURATION);
@@ -679,6 +732,74 @@ export function updateEnemy(deltaTime, playerMesh) {
                 // -----------------------------------------------------------
             }
             break;
+
+        // --- NEW SLEEPING STATE --- 
+        case EnemyAIState.SLEEPING:
+            const remainingSleepTime = Math.max(0, SLEEP_DURATION - enemyState.sleepTimer);
+            const sleepMinutes = Math.floor(remainingSleepTime / 60);
+            const sleepSeconds = Math.floor(remainingSleepTime % 60);
+            enemyState.statusText = `Sleeping (${sleepMinutes}:${sleepSeconds.toString().padStart(2, '0')} left)`;
+            enemyVelocity.set(0, 0, 0); // Ensure stopped
+            targetWorldPos = null;
+
+            // Ensure sounds are stopped
+            if (movementSound && enemyState.isMovingSoundPlaying) movementSound.stop();
+            enemyState.isMovingSoundPlaying = false;
+            if (scanningSound && enemyState.isScanningSoundPlaying) scanningSound.stop();
+            enemyState.isScanningSoundPlaying = false;
+
+            // Ensure light is dimmed
+            if (enemyState.spotLight && enemyState.spotLight.intensity > 0.11) { // Check > 0.11 to avoid floating point issues
+                enemyState.spotLight.intensity = 0.1; // Dim if not already dimmed
+            }
+
+            // Ensure idle animation is playing
+            if (enemyState.actions.walk) enemyState.actions.walk.fadeOut(FADE_DURATION);
+            if (enemyState.actions.idle) {
+                enemyState.actions.idle.fadeIn(FADE_DURATION);
+                // Wait for fade to likely complete then pause animation
+                setTimeout(() => {
+                    if (enemyState.currentState === EnemyAIState.SLEEPING) { // Check if still sleeping
+                        enemyState.actions.idle.timeScale = 0; 
+                        console.log("[Enemy Anim] Paused idle animation for sleep.");
+                    }
+                }, FADE_DURATION * 1000); // Delay matches fade duration
+            }
+            // Stop movement
+            enemyVelocity.set(0,0,0);
+
+            // --- Wake Timer / Pre-Wake Fade Check --- <<< MODIFIED
+            enemyState.sleepTimer += deltaTime;
+            // Start fade 4 seconds before waking
+            if (!enemyState.isFadingToAwakeMusic && remainingSleepTime <= MUSIC_ANTICIPATION_FADE_DURATION) {
+                console.log(`[Music] Approaching wake time, starting fade to danger theme.`);
+                playAppropriateMusic(true); // Fade to danger (awake) music
+                enemyState.isFadingToAwakeMusic = true;
+            }
+            // Actual transition to patrol
+            if (enemyState.sleepTimer >= SLEEP_DURATION) {
+                console.log(`ENEMY STATE: Sleep duration (${SLEEP_DURATION}s) reached. Waking up and returning to PATROLLING.`);
+                enemyState.currentState = EnemyAIState.PATROLLING;
+                enemyState.sleepTimer = 0; 
+                enemyState.patrolTimer = 0; 
+                enemyState.statusText = `Patrolling (${Math.max(0, PATROL_DURATION - enemyState.patrolTimer).toFixed(1)}s left)`;
+                // playAppropriateMusic(true); // <<< REMOVED from here
+                // Restore light intensity
+                if (enemyState.spotLight) enemyState.spotLight.intensity = enemyState.originalSpotlightIntensity;
+                // Resume Idle Animation
+                if (enemyState.actions.idle) {
+                   enemyState.actions.idle.timeScale = 1;
+                   console.log("[Enemy Anim] Resumed idle animation before fade.");
+                }
+                // Fade back to walk animation
+                if (enemyState.actions.idle) enemyState.actions.idle.fadeOut(FADE_DURATION);
+                if (enemyState.actions.walk) enemyState.actions.walk.fadeIn(FADE_DURATION);
+                // Let PATROLLING state handle movement target next frame
+                enemyState.isFadingToSleepMusic = false; // Reset other flag on state entry
+                break;
+            }
+            break;
+        // ------------------------
     }
     // -------------------------------------------
 

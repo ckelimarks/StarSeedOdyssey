@@ -25,8 +25,8 @@ import {
     playInventoryFullSound, // <<< Import Inventory Full Sound Player
     // --- NEW Theme/Success Imports ---
     playThemeMusic,
-    playTerraformSuccessSound
-    // ---------------------------------
+    playTerraformSuccessSound,
+    playAppropriateMusic // <<< ADDED NEW MUSIC FUNCTION
 } from './resources.js';
 import { initRocket, updateRocket, launchRocket, isRocketActive, isRocketStationed, placeRocketOnPad, hideRocketFromPad, rocketMesh } from './rocket.js';
 import { updateCamera } from './camera.js';
@@ -355,30 +355,40 @@ async function init() {
         // --- Step 1.5: Load Audio Asynchronously and Wait ---
         console.log("Main INIT: Loading audio...");
         try {
-            const loadedSounds = await loadAudio(audioListener); // Get the returned object
+            const loadedSounds = await loadAudio(audioListener); // <<< CORRECTED: Call directly
+            window.loadedSounds = loadedSounds;
             console.log("Main INIT: Audio loaded successfully.");
             
-            window.loadedSounds = loadedSounds; 
-
-            // --- Start ambient sound --- 
-            if (loadedSounds.ambientSound && loadedSounds.ambientSound.buffer && !loadedSounds.ambientSound.isPlaying) {
-                 if (loadedSounds.ambientSound.context.state === 'running') {
-                     console.log("Main INIT: Starting ambient sound.");
-                     loadedSounds.ambientSound.play();
+            // --- Start Ambient Sound --- (Moved after loading finishes)
+            if (window.loadedSounds.ambientSound && window.loadedSounds.ambientSound.buffer && !window.loadedSounds.ambientSound.isPlaying) {
+                 if (window.loadedSounds.ambientSound.context.state === 'running') {
+                     window.loadedSounds.ambientSound.play();
+                     console.log("Main INIT: Started ambient sound.");
                  } else {
-                    console.warn("Main INIT: Ambient sound loaded, but audio context not running, cannot play.");
-                 } 
+                     console.warn("Main INIT: Cannot start ambient sound - audio context not running.");
+                 }
+            } else if (window.loadedSounds.ambientSound?.isPlaying) {
+                 console.log("Main INIT: Ambient sound already playing?"); // Should not happen here
             } else {
-                 console.warn("Main INIT: Ambient sound object or buffer not ready after loadAudio resolved? (Using returned object)");
+                 console.warn("Main INIT: Ambient sound object or buffer not ready after loadAudio resolved?", window.loadedSounds.ambientSound);
             }
             // --------------------------
-            
-            // --- NEW: Play Theme Music --- 
-            playThemeMusic(); // Call the helper function
-            // -----------------------------
+
+            // --- Start Initial Music --- 
+            // playAppropriateMusic(true); // Old fade call
+            if (window.loadedSounds?.dangerThemeSound && window.loadedSounds.dangerThemeSound.buffer && !window.loadedSounds.dangerThemeSound.isPlaying) {
+                // Start danger theme directly at its base volume
+                window.loadedSounds.dangerThemeSound.setVolume(window.loadedSounds.dangerThemeSound.userData.baseVolume || 0.3);
+                window.loadedSounds.dangerThemeSound.play();
+                console.log("[Music] Started initial danger theme directly.");
+            } else {
+                console.warn("[Music] Could not start initial danger theme.");
+            }
+            // --------------------------
 
         } catch (error) {
-            console.error("Main INIT: Failed to load audio. Gameplay might be affected.", error);
+            console.error("Main INIT: Error loading audio:", error);
+            // Handle audio loading error (e.g., show error message, proceed without audio)
         }
         // -------------------------------------------------------
 
