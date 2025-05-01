@@ -391,8 +391,15 @@ export function initEnemy(scene, homePlanet) {
 
             // --- NEW: Set initial visibility based on state ---
             if (enemyState.currentState === EnemyAIState.SLEEPING) {
-                model.visible = false;
-                console.log("Enemy INIT: Starting asleep, mesh set to invisible.");
+                // model.visible = false; // <<< OLD: Hide parent
+                // --- NEW: Traverse and hide individual meshes ---
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        child.visible = false;
+                    }
+                });
+                // ------------------------------------------------
+                console.log("Enemy INIT: Starting asleep, mesh children set to invisible.");
             }
             // ------------------------------------------------
 
@@ -495,6 +502,13 @@ export function updateEnemy(deltaTime, playerMesh) {
                     // enemyState.actions.walk.fadeOut(FADE_DURATION); // No need to fade if pausing
                     enemyState.actions.walk.timeScale = 0; 
                 }
+                // --- NEW: Traverse and hide meshes --- 
+                enemyMesh.traverse((child) => {
+                    if (child.isMesh) {
+                        child.visible = false;
+                    }
+                });
+                // -----------------------------------
                 enemyState.isFadingToAwakeMusic = false; // Reset other flag on state entry
                 break; 
             }
@@ -833,7 +847,14 @@ export function updateEnemy(deltaTime, playerMesh) {
                 }
                 // ------------------------------------
 
-                enemyState.mesh.visible = true; // Show mesh
+                // enemyState.mesh.visible = true; // Show mesh // <<< OLD: Show parent
+                // --- NEW: Traverse and show meshes --- 
+                enemyMesh.traverse((child) => {
+                    if (child.isMesh) {
+                        child.visible = true;
+                    }
+                });
+                // -----------------------------------
                 enemyState.isFadingToSleepMusic = false; // Reset flag
                 break;
             }

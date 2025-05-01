@@ -48,6 +48,7 @@ let mapContainer;
 let mapPlanet;
 let mapPlayer, mapPal, mapRocket;
 let mapPathTrail; // NEW: For player path
+let mapEnemy; // <<< NEW: Enemy dot
 const MAP_PLANET_RADIUS = 50; // Radius for the map sphere
 const MAP_DOT_RADIUS = 1.5;   // Radius for the player/pal/rocket dots
 const MAP_CONE_HEIGHT = MAP_DOT_RADIUS * 3; // Height for the rocket cone
@@ -107,6 +108,7 @@ const _mapPlayerWorldPos = new THREE.Vector3();
 const _mapPalWorldPos = new THREE.Vector3();
 const _mapRocketWorldPos = new THREE.Vector3();
 const _mapHomePlanetWorldPos = new THREE.Vector3(); // Store home planet world pos
+const _mapEnemyWorldPos = new THREE.Vector3(); // <<< NEW: Temp vector for enemy
 const _mapPlayerUp = new THREE.Vector3(); // Store player's up vector
 const _mapTargetUp = new THREE.Vector3(); // For orienting map objects
 const _mapOrientationQuat = new THREE.Quaternion();
@@ -450,6 +452,14 @@ async function init() {
             console.log("Main INIT: Initializing Mini-Map...");
             mapScene = new THREE.Scene();
 
+            // --- NEW: Add Lights to Map Scene ---
+            const mapAmbientLight = new THREE.AmbientLight(0xffffff, 0.6); // Soft ambient
+            mapScene.add(mapAmbientLight);
+            const mapDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.8); // Directional light
+            mapDirectionalLight.position.set(0.5, 1, 1).normalize(); // Position light source
+            mapScene.add(mapDirectionalLight);
+            // -------------------------------------
+
             // Map Renderer
             mapRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // Use alpha if bg is transparent
             mapRenderer.setSize(mapContainer.clientWidth, mapContainer.clientHeight);
@@ -463,11 +473,29 @@ async function init() {
             mapCamera.position.set(0, MAP_CAMERA_DISTANCE, 0); // Initial position above
             mapCamera.lookAt(mapScene.position); // Look at center
 
-            // Map Planet (Wireframe)
-            const mapPlanetGeo = new THREE.SphereGeometry(MAP_PLANET_RADIUS, 8, 6); // Reduced segments
-            const mapPlanetMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.5 }); // Make slightly transparent
+            // Create Map Sphere (using higher segments for smoothness)
+            const mapPlanetGeo = new THREE.SphereGeometry(MAP_PLANET_RADIUS, 32, 16); // <<< Increased segments
+            const mapPlanetMat = new THREE.MeshStandardMaterial({ // <<< NEW STANDARD MATERIAL FOR SHADING
+                color: 0xffffff, 
+                transparent: true, 
+                opacity: 0.25, // Slightly less transparent to see shading better
+                metalness: 0.1, // Low metalness
+                roughness: 0.8  // Mostly rough surface
+            });
             mapPlanet = new THREE.Mesh(mapPlanetGeo, mapPlanetMat);
             mapScene.add(mapPlanet);
+
+            // --- NEW: Add faint wireframe overlay ---
+            const mapWireframeMat = new THREE.MeshBasicMaterial({
+                color: 0x888888, // <<< Changed to grey
+                wireframe: true,
+                transparent: true,
+                opacity: 0.15, // <<< Reduced opacity further
+                depthTest: false // Render on top of the solid sphere slightly
+            });
+            const mapPlanetWireframe = new THREE.Mesh(mapPlanetGeo, mapWireframeMat); // Re-use geometry
+            mapScene.add(mapPlanetWireframe);
+            // --------------------------------------
 
             // Map Player Dot
             const mapPlayerGeo = new THREE.SphereGeometry(MAP_DOT_RADIUS, 8, 8);
@@ -489,6 +517,14 @@ async function init() {
             mapRocket = new THREE.Mesh(mapRocketGeo, mapRocketMat);
             mapRocket.visible = false;
             mapScene.add(mapRocket);
+
+            // --- NEW: Map Enemy Dot ---
+            const mapEnemyGeo = new THREE.BoxGeometry(MAP_DOT_RADIUS * 2, MAP_DOT_RADIUS * 2, MAP_DOT_RADIUS * 2); // NEW Cube
+            const mapEnemyMat = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Red
+            mapEnemy = new THREE.Mesh(mapEnemyGeo, mapEnemyMat);
+            mapEnemy.visible = false; // Initially hidden
+            mapScene.add(mapEnemy);
+            // --------------------------
 
             // --- NEW: Map Path Trail Line ---
             const mapPathGeo = new THREE.BufferGeometry();
@@ -733,6 +769,18 @@ function updateMiniMap() {
         _mapOrientationQuat.setFromUnitVectors(_yAxis, _mapTargetUp); // Rotate default Y+ up to point outwards
         mapRocket.quaternion.copy(_mapOrientationQuat);
     }
+
+    // --- NEW: Update Enemy Dot ---
+    if (mapEnemy && enemyState?.mesh) { // Check if map dot and enemy mesh exist
+        enemyState.mesh.getWorldPosition(_mapEnemyWorldPos); // Get enemy world position
+        _mapTargetPos.subVectors(_mapEnemyWorldPos, _mapHomePlanetWorldPos).normalize().multiplyScalar(MAP_PLANET_RADIUS);
+        mapEnemy.position.copy(_mapTargetPos);
+        // Show dot only if enemy mesh is actually visible in the main scene
+        mapEnemy.visible = enemyState.mesh.visible;
+    } else if (mapEnemy) {
+        mapEnemy.visible = false; // Hide if enemy state/mesh isn't ready
+    }
+    // -----------------------------
 
     // --- NEW: Update Map Path Trail ---
     if (mapPathTrail && pathPoints) {
