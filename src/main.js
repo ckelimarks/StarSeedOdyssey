@@ -28,7 +28,18 @@ import {
     playTerraformSuccessSound,
     playAppropriateMusic // <<< ADDED NEW MUSIC FUNCTION
 } from './resources.js';
-import { initRocket, updateRocket, launchRocket, isRocketActive, isRocketStationed, placeRocketOnPad, hideRocketFromPad, rocketMesh } from './rocket.js';
+import { 
+    initRocket, 
+    updateRocket, 
+    launchRocket, 
+    isRocketActive, 
+    isRocketStationed, 
+    placeRocketOnPad, 
+    hideRocketFromPad, 
+    rocketMesh,
+    startRocketEffects, // <<< NEW IMPORT
+    stopRocketEffects   // <<< NEW IMPORT
+} from './rocket.js';
 import { updateCamera } from './camera.js';
 import { initPal, updatePal, palMesh } from './pal.js'; // ADDED Pal import and palMesh export
 import { initEnemy, updateEnemy } from './enemy.js'; // <<< ADDED Enemy import
@@ -1024,6 +1035,11 @@ function animate() {
         pendingLaunchTarget = null;
         pendingLaunchPayload = 0;
         pendingLaunchFuelCost = 0;
+        // --- NEW: Stop effects if launch failed ---
+        if (!launchSuccess) {
+            stopRocketEffects();
+        }
+        // -------------------------------------------
     }
 
     // --- Handle Rocket Landing ---
@@ -1119,10 +1135,11 @@ function animate() {
                              // --- ADDED Double Check for Pending Launch --- 
                              if (!isLaunchPending) { // Only proceed if not already pending
                                  console.log(`Target valid. Setting pending launch state.`);
-                                 // --- Play launch sound immediately --- 
+                                 // --- Play launch sound & START effects --- 
                                  spacebarPressCount++; // Increment counter
                                  console.log(`SOUND TRIGGER: Spacebar press #${spacebarPressCount}`); // Log count
                                  playRocketLaunchSound(); 
+                                 startRocketEffects(); // <<< START EFFECTS HERE
                                  // -------------------------------------
                          pendingLaunchTarget = targetPlanetData;
                          pendingLaunchPayload = seedsToLaunch;
@@ -1143,6 +1160,17 @@ function animate() {
                         console.log("Launch attempt ignored: No seeds available.");
                 }
             }
+        } else { // Player NOT near pad
+            // --- NEW: Cancel pending launch if player moves away ---
+            if (isLaunchPending) {
+                console.log("Player moved away during launch countdown. Cancelling launch.");
+                isLaunchPending = false;
+                pendingLaunchTarget = null;
+                pendingLaunchPayload = 0;
+                pendingLaunchFuelCost = 0;
+                stopRocketEffects(); // <<< STOP EFFECTS HERE
+            }
+            // ------------------------------------------------------
         }
     }
 

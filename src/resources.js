@@ -1233,7 +1233,7 @@ function loadAudio(listener) {
         );
 
         // Load FUEL pickup sound
-        loader.load('sfx/stone-break.wav', 
+        loader.load('sfx/stone-break.mp3', 
             (buffer) => {
                 fuelPickupSound1 = new THREE.Audio(audioListenerRef);
                 fuelPickupSound1.setBuffer(buffer);

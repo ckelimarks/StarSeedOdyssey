@@ -1,4 +1,5 @@
 import * as THREE from 'https://esm.sh/three@0.128.0';
+import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
 import {
     ROCKET_RADIUS,
     ROCKET_HEIGHT,
@@ -7,10 +8,13 @@ import {
     ROCKET_LANDING_LINGER // Add linger duration
 } from './config.js';
 import { playRocketLaunchSound, playImpactSound, inventory, updateInventoryDisplay } from './resources.js'; // Import sound object, impact function, inventory, and UI update
+import { createRocketTrailEmitter, updateParticlesCPU } from './particle_effects.js'; // <<< NEW IMPORT
 
 let sceneRef = null;
 let rocketMesh = null;
 let homePlanetRef = null; // Store reference to home planet
+let rocketEmitterState = null; // <<< NEW: State for particle emitter
+let rocketFlameLight = null; // <<< NEW: Light for the flame
 // let rocketVelocity = new THREE.Vector3(); // No longer needed
 
 // --- New State Variables for Lerp Travel ---
@@ -30,6 +34,7 @@ let finalWorldPos = new THREE.Vector3(); // Store final position for re-parentin
 let finalWorldQuat = new THREE.Quaternion(); // Store final orientation for re-parenting
 let finalPlanetWorldPos = new THREE.Vector3(); // Store planet position at landing
 let finalPlanetWorldQuat = new THREE.Quaternion(); // Store planet orientation at landing
+let isPreLaunching = false; // <<< NEW: Flag for pre-launch effects
 
 // --- Temporary Vectors ---
 const _targetPos = new THREE.Vector3(); // Planet Center
@@ -48,6 +53,10 @@ const _tempLocalPos = new THREE.Vector3(); // For local transform calculation
 function easeOutQuad(t) {
     return t * (2 - t);
 }
+
+// --- GLTF Loader ---
+const loader = new GLTFLoader();
+// -----------------
 
 // NEW: Reset Rocket Function
 function resetRocket() {
@@ -80,6 +89,8 @@ function resetRocket() {
     }
     // Position/rotation will be set by placeRocketOnPad later
     console.log("Rocket reset and re-attached to home planet.");
+    stopRocketEffects(); // <<< NEW: Ensure effects are off on reset
+    isPreLaunching = false; // <<< NEW: Ensure prelaunch flag is off
 }
 
 function initRocket(scene, homePlanet) {
@@ -92,15 +103,95 @@ function initRocket(scene, homePlanet) {
     const material = new THREE.MeshStandardMaterial({
         color: ROCKET_COLOR,
         emissive: 0xffffff, // Make it glow white
-        emissiveIntensity: 1.5 // Adjust intensity as needed
+        emissiveIntensity: 1.5, // Adjust intensity as needed
+        // visible: false // <<< REVERTING: MAKE CONE VISIBLE AGAIN
     });
     rocketMesh = new THREE.Mesh(geometry, material);
-    rocketMesh.visible = false; // Start hidden
+    rocketMesh.visible = false; // Start hidden (Parent visibility still controls overall)
     rocketMesh.name = 'rocket';
     rocketMesh.scale.set(5, 5, 5); // Scale the rocket mesh up to make it more visible
     homePlanet.add(rocketMesh); // ADDED to homePlanet
     console.log('Rocket initialized (simplified travel, attached to planet).');
+
+    // --- Load GLTF Model ---
+    loader.load(
+        'models/rocket/rocket.gltf',
+        function (gltf) { // Success
+            console.log("Rocket GLTF model loaded.");
+            const model = gltf.scene;
+            
+            // --- Initial Scale (adjust as needed) ---
+            // The cone (parent) is already scaled 5x
+            // const gltfScale = 0.1; // Start small relative to parent scale
+            // model.scale.set(gltfScale, gltfScale, gltfScale);
+            model.scale.set(1, 1, 1); // <<< SETTING DEFAULT SCALE (relative to parent)
+            console.log("Set Rocket GLTF model scale to default (1, 1, 1) relative to parent cone.");
+            // ---------------------------------------
+            
+            // --- Rotate GLTF to align with cone geometry rotation ---
+            model.rotation.x = Math.PI / 2; // Rotate +90 degrees around local X-axis
+            console.log("Rotated GLTF model +90 degrees on X-axis.");
+            // -----------------------------------------------------
+            
+            // --- Adjust GLTF Position Relative to Cone --- 
+            model.position.z = 0.0; // <<< Resetting model Z offset to 0 relative to cone base
+            console.log("Reset GLTF model position Z to 0.0 relative to cone.");
+            // -------------------------------------------
+            
+            // --- Shadows (Optional but good practice) ---
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+            // ------------------------------------------
+            
+            // --- Add GLTF as child of the cone ---
+            rocketMesh.add(model);
+            console.log("Added Rocket GLTF model as child of the cone mesh.");
+            // ------------------------------------
+        },
+        undefined, // Progress callback (optional)
+        function (error) { // Error callback
+            console.error("Error loading Rocket GLTF model:", error);
+        }
+    );
+    // ----------------------
+
+    // --- Create Particle Emitter --- <<< NEW
+    rocketEmitterState = createRocketTrailEmitter(ROCKET_HEIGHT);
+    if (rocketEmitterState?.points) {
+        rocketMesh.add(rocketEmitterState.points); // Add particles as child
+        console.log("Added particle emitter to rocket mesh.");
+    } else {
+        console.error("Failed to create or add particle emitter.");
+    }
+    // ------------------------------
+
+    // --- Create Flame Point Light --- <<< NEW
+    rocketFlameLight = new THREE.PointLight(0xffaa00, 0, 15); // Orange, Intensity 0 (off), Distance
+    rocketFlameLight.position.set(0, 0, -ROCKET_HEIGHT * 0.9); // <<< Lowered light to match emitter
+    rocketMesh.add(rocketFlameLight);
+    console.log("Added flame point light to rocket mesh.");
+    // -------------------------------
 }
+
+// --- NEW: Functions to control effects independently ---
+function startRocketEffects() {
+    console.log("Starting pre-launch rocket effects...");
+    if (rocketEmitterState?.points) rocketEmitterState.points.visible = true;
+    if (rocketFlameLight) rocketFlameLight.intensity = 5.0; // Turn light on
+    isPreLaunching = true;
+}
+
+function stopRocketEffects() {
+    console.log("Stopping rocket effects...");
+    if (rocketEmitterState?.points) rocketEmitterState.points.visible = false;
+    if (rocketFlameLight) rocketFlameLight.intensity = 0; // Turn light off
+    isPreLaunching = false; // Ensure flag is reset
+}
+// -----------------------------------------------------
 
 // --- New Function: Place rocket on launch pad ---
 // localPosition: Local coordinates relative to the planet center
@@ -113,10 +204,18 @@ function placeRocketOnPad(localPosition) { // Removed planetNormal parameter for
     // console.log(`placeRocketOnPad Normal: x=${planetNormal.x.toFixed(2)}, y=${planetNormal.y.toFixed(2)}, z=${planetNormal.z.toFixed(2)}`);
 
     // Set position directly in parent's (planet's) local space
-    rocketMesh.position.copy(localPosition);
+    // rocketMesh.position.copy(localPosition); // <<< OLD: Directly on surface
+
+    // --- NEW: Add offset along surface normal ---
+    const localNormal = localPosition.clone().normalize(); // Get the up direction at this point
+    const surfaceOffset = 5.0; // Adjust this value as needed
+    const finalPosition = localPosition.clone().addScaledVector(localNormal, surfaceOffset);
+    rocketMesh.position.copy(finalPosition);
+    console.log(`Applying surface offset: ${surfaceOffset}. Final position: (${finalPosition.x.toFixed(2)}, ${finalPosition.y.toFixed(2)}, ${finalPosition.z.toFixed(2)})`);
+    // ----------------------------------------
 
     // Orient rocket to point straight "up" in local space (along the position vector from center)
-    const localNormal = localPosition.clone().normalize(); 
+    // const localNormal = localPosition.clone().normalize(); // <<< Moved up
     // *** UPDATED: Align the rotated geometry's forward axis (Z) with the local normal ***
     _alignQuaternion.setFromUnitVectors(_rocketUp, localNormal);
     rocketMesh.quaternion.copy(_alignQuaternion);
@@ -198,6 +297,12 @@ function launchRocket(targetPlanetObj, seedCount, fuelCost) { // Added fuelCost 
     targetPlanet.mesh.getWorldPosition(_targetPos);
     rocketMesh.lookAt(_targetPos);
     
+    // --- NEW: Activate particles and light ---
+    if (rocketEmitterState?.points) rocketEmitterState.points.visible = true;
+    if (rocketFlameLight) rocketFlameLight.intensity = 5.0; // Turn light on (adjust intensity)
+    // -----------------------------------------
+    
+    isPreLaunching = false; // <<< NEW: Turn off pre-launch state once launched
     return true; // Launch successful
 }
 
@@ -237,6 +342,17 @@ function updateRocket(deltaTime) {
         return undefined; // Still lingering
     }
 
+    // --- NEW: Update Particle System (Moved Earlier) ---
+    if (rocketEmitterState) {
+        const isFlying = isActive && !isLandingSequence; // Determine flying state
+        // <<< ADD DEBUG LOGS >>>
+        // console.log(`[Particle Update] isPreLaunching: ${isPreLaunching}, isFlying: ${isFlying}, Points Visible: ${rocketEmitterState.points?.visible}`); // <<< REMOVING DEBUG LOGS
+        // <<< END DEBUG LOGS >>>
+        updateParticlesCPU(deltaTime, isPreLaunching, isFlying); // <<< NEW call with separate flags
+    }
+    // -----------------------------------
+
+    // --- Exit if not actively travelling (AFTER particle update) ---
     if (!isActive || !rocketMesh || !targetPlanet?.mesh) {
         return undefined; 
     }
@@ -329,6 +445,12 @@ function updateRocket(deltaTime) {
         isLandingSequence = true;
         landingStartTime = performance.now();
         
+        // --- NEW: Deactivate particles and light --- 
+        // if (rocketEmitterState?.points) rocketEmitterState.points.visible = false; // <<< MOVED TO stopRocketEffects
+        // if (rocketFlameLight) rocketFlameLight.intensity = 0; // Turn light off // <<< MOVED TO stopRocketEffects
+        stopRocketEffects(); // <<< NEW: Call stop function
+        // -----------------------------------------
+
         if (!impactSoundPlayedThisTrip) {
              console.log("Playing impact sound on immediate arrival (short trip).");
              playImpactSound();
@@ -362,5 +484,9 @@ export {
     isRocketActive,
     isRocketApproachingLanding, // NEW Export
     isRocketStationed, // New
-    rocketMesh
+    rocketMesh,
+    // --- NEW EXPORTS ---
+    startRocketEffects,
+    stopRocketEffects
+    // ------------------
 }; 
