@@ -31,6 +31,7 @@ import {
 import { initRocket, updateRocket, launchRocket, isRocketActive, isRocketStationed, placeRocketOnPad, hideRocketFromPad, rocketMesh } from './rocket.js';
 import { updateCamera } from './camera.js';
 import { initPal, updatePal, palMesh } from './pal.js'; // ADDED Pal import and palMesh export
+import { initEnemy, updateEnemy } from './enemy.js'; // <<< ADDED Enemy import
 
 console.log("main.js: Script start");
 
@@ -67,6 +68,8 @@ let cameraFocusTarget = null; // Store the mesh the camera should focus on
 let isCameraFocusingPlanet = false; // Flag to override default camera logic
 let isCameraInTerraformPosition = false; // NEW: Flag to track camera arrival
 
+let enemyState = null; // <<< ADDED Enemy state variable
+
 // UI Element References
 let seedBankElement = null;
 let terraformButton = null;
@@ -77,6 +80,7 @@ let debugInstantTerraformButton = null; // NEW: Reference for instant terraform 
 let debugEnableTerraformButton = null; // NEW: Reference for enable terraform button debug
 let boostMeterFillElement = null; // NEW
 let boostStatusElement = null; // NEW
+let enemyStatusElement = null; // <<< ADDED
 
 // --- NEW: Pal State ---
 let isPalInitialized = false;
@@ -420,6 +424,11 @@ async function init() {
         window.playerState = initPlayer(scene, homePlanet, audioListener);
         console.log("Main INIT: Player initialized.");
 
+        // --- Step 5.5: Initialize Enemy ---
+        enemyState = initEnemy(scene, homePlanet); // <<< MOVED & Assigned enemyState
+        console.log("Main INIT: Enemy initialization requested.");
+        // ----------------------------------
+
         // --- Step 6: Initialize Rocket ---
         initRocket(scene, homePlanet);
         console.log("Main INIT: Rocket initialized.");
@@ -607,6 +616,20 @@ async function init() {
         debugEnableTerraformButton.addEventListener('click', handleDebugEnableTerraformButton);
         document.body.appendChild(debugEnableTerraformButton);
         // -----------------------------------------------------
+
+        // --- NEW: Create Enemy Status UI ---
+        enemyStatusElement = document.createElement('div');
+        enemyStatusElement.id = 'enemy-status';
+        enemyStatusElement.style.position = 'absolute';
+        enemyStatusElement.style.top = '40px'; // Below Stats
+        enemyStatusElement.style.left = '10px';
+        enemyStatusElement.style.color = 'white';
+        enemyStatusElement.style.fontFamily = 'Helvetica, Arial, sans-serif';
+        enemyStatusElement.style.fontSize = '14px';
+        enemyStatusElement.style.textShadow = '1px 1px 2px black';
+        enemyStatusElement.textContent = 'Enemy: Initializing...'; // Initial text
+        document.body.appendChild(enemyStatusElement);
+        // ----------------------------------
 
         console.log("Main INIT: UI created.");
 
@@ -841,6 +864,17 @@ function animate() {
     }
     const landingInfo = updateRocket(deltaTime);
     updatePal(deltaTime, window.playerState?.mesh, homePlanet); // Update call with args
+
+    // --- NEW: Update Enemy ---
+    if (enemyState?.isInitialized) { // Check if enemy is ready
+        updateEnemy(deltaTime, window.playerState?.mesh);
+        // --- Update Enemy Spotlight Helper ---
+        if (enemyState.spotLightHelper) {
+            enemyState.spotLightHelper.update();
+        }
+        // -------------------------------------
+    }
+    // --------------------------
 
     // --- NEW: Handle Fuel Consumption ---
     if (window.playerState && inventory.fuel > 0) {
@@ -1110,6 +1144,9 @@ function animate() {
     // --- Update UI --- (Moved together)
     updateInventoryDisplay();
     updateBoostMeterUI(); // Call boost meter update
+
+    // Update Enemy Status UI (Added directly)
+    if (enemyStatusElement && typeof enemyState !== 'undefined' && enemyState?.statusText) { enemyStatusElement.textContent = `Enemy: ${enemyState.statusText}`; }
 
     // --- Update Mini-Map ---
     updateMiniMap(); // Call the map update function

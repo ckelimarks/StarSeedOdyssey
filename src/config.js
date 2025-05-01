@@ -163,3 +163,9 @@ export const BOOST_TRAIL_COLOR = 0x00aaff; // Light blue
 export const BOOST_TRAIL_LENGTH = 30; // Number of segments
 export const BOOST_TRAIL_WIDTH = 1.5; // Width at player
 export const BOOST_TRAIL_MIN_WIDTH = 0.1; // Width at tail end 
+
+// --- NEW: Enemy Configuration ---
+export const ENEMY_ACCELERATION = ACCELERATION * 0.15; // Slower acceleration (was 0.25)
+export const ENEMY_MAX_VELOCITY = MAX_VELOCITY * 0.2; // Slower max speed (was 0.3)
+export const ENEMY_FRICTION = FRICTION; // Same friction for now
+// --------------------------- 

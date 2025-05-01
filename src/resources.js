@@ -48,6 +48,16 @@ let slowdownSound = null; // NEW: For fuel depletion slowdown
 let slowdownSoundPlayStartTime = 0; // NEW: Track playback start time
 let slowdownFadeRafId = null; // NEW: Track requestAnimationFrame ID
 
+// --- NEW: Enemy Movement Sound ---
+let enemyMovementSound = null;
+// --- NEW: Enemy Scanning Sound ---
+let enemyScanningSound = null;
+// --- NEW: Enemy Roar Sound (Non-Looping) ---
+let enemyRoarSound = null;
+// --- NEW: Alarm Siren Sound (Non-Looping) ---
+let alarmSirenSound = null;
+// --------------------------------
+
 // --- Cooldown Tracking ---
 let lastPalArrivalSoundTime = 0;
 
@@ -1180,7 +1190,7 @@ function loadAudio(listener) {
         audioListenerRef = listener; 
         const loader = new THREE.AudioLoader();
         let soundsLoaded = 0;
-        const totalSoundsToLoad = 16; // <<< INCREMENTED total sound count (from 15)
+        const totalSoundsToLoad = 20; // <<< UPDATED
         const loadedSounds = {}; 
 
         const checkAllLoaded = () => {
@@ -1433,7 +1443,7 @@ function loadAudio(listener) {
                 const themeMusicSound = new THREE.Audio(audioListenerRef); 
                 themeMusicSound.setBuffer(buffer);
                 themeMusicSound.setLoop(true); 
-                themeMusicSound.setVolume(0.4); 
+                themeMusicSound.setVolume(0.14); // Reduced volume by 40% (0.4 * 0.6)
                 loadedSounds.themeMusicSound = themeMusicSound;
                 console.log("Theme music loaded."); 
                 checkAllLoaded();
@@ -1459,22 +1469,6 @@ function loadAudio(listener) {
         );
         // -----------------------------------
 
-        // --- Load Theme Music (Add Back) ---
-        loader.load('sfx/theme_basic.mp3', 
-            (buffer) => {
-                themeMusic = new THREE.Audio(audioListenerRef); 
-                themeMusic.setBuffer(buffer);
-                themeMusic.setLoop(true); 
-                themeMusic.setVolume(0.3); 
-                loadedSounds.themeMusicSound = themeMusic;
-                console.log("Theme music loaded."); 
-                checkAllLoaded();
-            }, 
-            undefined, // onProgress
-            (err) => onError('sfx/theme_basic.mp3', err)
-        );
-        // -----------------------------------
-
         // --- Load Slowdown Sound (NEW) ---
         loader.load('sfx/slowdown.mp3', 
             (buffer) => {
@@ -1490,6 +1484,73 @@ function loadAudio(listener) {
             (err) => onError('sfx/slowdown.mp3', err)
         );
         // -----------------------------------
+
+        // --- Load Enemy Movement Sound (NEW - Positional) ---
+        loader.load('sfx/robottanksound.mp3', 
+            (buffer) => {
+                enemyMovementSound = new THREE.PositionalAudio(audioListenerRef);
+                enemyMovementSound.setBuffer(buffer);
+                enemyMovementSound.setLoop(true);
+                enemyMovementSound.setRefDistance(5); // Full volume up to 5 units away
+                enemyMovementSound.setRolloffFactor(0.5); // Falloff factor (adjust as needed)
+                enemyMovementSound.setDistanceModel('inverse'); // Default, but explicit
+                // Volume starts at 1.0 (max) and decreases with distance
+                loadedSounds.enemyMovementSound = enemyMovementSound; 
+                console.log("Enemy movement sound loaded (Positional)."); 
+                checkAllLoaded();
+            }, 
+            undefined, // onProgress
+            (err) => onError('sfx/robottanksound.mp3', err)
+        );
+        // ----------------------------------------------------
+
+        // --- Load Enemy Scanning Sound (NEW) ---
+        loader.load('sfx/robottankrotatesound.mp3', 
+            (buffer) => {
+                enemyScanningSound = new THREE.Audio(audioListenerRef); // Non-positional
+                enemyScanningSound.setBuffer(buffer);
+                enemyScanningSound.setLoop(true); // Loop while scanning
+                enemyScanningSound.setVolume(0.6); // Adjust volume as needed
+                loadedSounds.enemyScanningSound = enemyScanningSound; 
+                console.log("Enemy scanning sound loaded."); 
+                checkAllLoaded();
+            }, 
+            undefined, // onProgress
+            (err) => onError('sfx/robottankrotatesound.mp3', err)
+        );
+        // --------------------------------------------------
+
+        // --- Load Enemy Roar Sound (Non-Looping) ---
+        loader.load('sfx/enemyroar.mp3', 
+            (buffer) => {
+                enemyRoarSound = new THREE.Audio(audioListenerRef);
+                enemyRoarSound.setBuffer(buffer);
+                enemyRoarSound.setLoop(false);
+                enemyRoarSound.setVolume(0.7);
+                loadedSounds.enemyRoarSound = enemyRoarSound;
+                console.log("Enemy roar sound loaded.");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/enemyroar.mp3', err)
+        );
+        // --------------------------------------------------
+
+        // --- Load Alarm Siren Sound (Non-Looping) ---
+        loader.load('sfx/alarmsiren.mp3', 
+            (buffer) => {
+                alarmSirenSound = new THREE.Audio(audioListenerRef);
+                alarmSirenSound.setBuffer(buffer);
+                alarmSirenSound.setLoop(false);
+                alarmSirenSound.setVolume(0.7);
+                loadedSounds.alarmSirenSound = alarmSirenSound;
+                console.log("Alarm siren sound loaded.");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/alarmsiren.mp3', err)
+        );
+        // --------------------------------------------------
 
     }); // End of Promise wrapper
 }
@@ -1634,7 +1695,10 @@ export {
     // --- Add new exports --- 
     playThemeMusic,
     playTerraformSuccessSound,
-    playSlowdownSound
+    playSlowdownSound,
+    // --- New exports ---
+    enemyRoarSound,
+    alarmSirenSound
     // -----------------------
     // Add any other functions from this module that need exporting
 }; 
