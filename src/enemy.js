@@ -26,8 +26,8 @@ const SPOTLIGHT_SENSITIVITY_AT_MIN_DIST = 1.0; // <<< NEW: Sensitivity multiplie
 const HUNT_PREDICTION_ERROR_DISTANCE = 2.0; // <<< NEW: How much inaccuracy when hunting
 const SPOTLIGHT_TRACKING_SPEED = 6.0; // <<< INCREASED AGAIN
 const DETECTION_SOUND_COOLDOWN = 3.0; // <<< NEW: Cooldown for roar/siren sounds
-const PATROL_DURATION = 30.0; // <<< ADJUSTED for testing
-const SLEEP_DURATION = 30.0;  // <<< ADJUSTED for testing
+const PATROL_DURATION = 45.0; // <<< ADJUSTED for testing
+const SLEEP_DURATION = 60.0;  // <<< CORRECTED VALUE & ADDED SEMICOLON
 const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // <<< NEW: Added for music fade logic
 // ------------------------
 
@@ -53,7 +53,7 @@ let enemyState = {
     velocity: new THREE.Vector3(),
     targetLookDirection: new THREE.Vector3(0, 0, 1), // Initial forward relative to initial orientation
     // --- AI State ---
-    currentState: EnemyAIState.PATROLLING, // Start patrolling
+    currentState: EnemyAIState.SLEEPING, // <<< NEW: Start sleeping
     scanTimer: 0, 
     scanDuration: 0, 
     timeSincePlayerSeen: 0, // <<< NEW: Timer for giving up hunt
@@ -69,8 +69,9 @@ let enemyState = {
     statusText: "Initializing", // Current action description
     lastDetectionSoundTime: 0, // <<< NEW: Timestamp for cooldown
     // --------------------
-    patrolTimer: 0, // <<< NEW: Timer for patrol duration
+    patrolTimer: 0, // <<< NEW
     sleepTimer: 0, // <<< NEW: Timer for sleep duration
+    originalSpotlightIntensity: 1.0, // <<< STORE INTENSITY
 };
 // ------------------
 
@@ -270,13 +271,20 @@ export function initEnemy(scene, homePlanet) {
             spotLight.target = model; // <<< Target the model origin directly
             model.add(spotLight); // Add the spotlight itself as a child of the bot model
             enemyState.spotLight = spotLight; // Store reference if needed
+            enemyState.originalSpotlightIntensity = spotLight.intensity; // <<< STORE INTENSITY
+            // --- NEW: Dim light if starting asleep ---
+            if (enemyState.currentState === EnemyAIState.SLEEPING) {
+                spotLight.intensity = 0.1;
+                console.log("Enemy INIT: Starting asleep, spotlight dimmed.");
+            }
+            // -----------------------------------------
             console.log("Enemy INIT: Added spotlight targeting model origin."); // Updated log
             
             // --- ADD Spotlight Helper ---
-            const spotLightHelper = new THREE.SpotLightHelper(spotLight);
-            scene.add(spotLightHelper); // Add helper to the main scene
-            enemyState.spotLightHelper = spotLightHelper; // Store reference
-            console.log("Enemy INIT: Added SpotLightHelper to the scene.");
+            // const spotLightHelper = new THREE.SpotLightHelper(spotLight); // <<< COMMENTED OUT
+            // scene.add(spotLightHelper); // Add helper to the main scene // <<< COMMENTED OUT
+            // enemyState.spotLightHelper = spotLightHelper; // Store reference // <<< COMMENTED OUT
+            // console.log("Enemy INIT: Added SpotLightHelper to the scene."); // <<< COMMENTED OUT
             // --------------------------
             
             // --- Add Emissive Sphere at Light Origin ---
@@ -318,49 +326,52 @@ export function initEnemy(scene, homePlanet) {
             // --------------------------------------------
 
             // --- Visualize Patrol Points ---
-            const pointGeo = new THREE.SphereGeometry(0.2, 6, 4); // Small sphere
-            const pointMat = new THREE.MeshBasicMaterial({ color: 0xffff00 }); // Yellow
-            const planetCenter = homePlanetRef.position.clone(); // Assume planet center is its position
-            const visualPointHeight = 0.1; // Slightly above surface
+            // const pointGeo = new THREE.SphereGeometry(0.2, 6, 4); // Small sphere // <<< COMMENTED OUT
+            // const pointMat = new THREE.MeshBasicMaterial({ color: 0xffff00 }); // Yellow // <<< COMMENTED OUT
+            // const planetCenter = homePlanetRef.position.clone(); // Assume planet center is its position // <<< COMMENTED OUT
+            // const visualPointHeight = 0.1; // Slightly above surface // <<< COMMENTED OUT
 
-            console.log(`Enemy INIT: Visualizing ${NUM_PATROL_POINTS} patrol points...`);
+            console.log(`Enemy INIT: Visualizing ${NUM_PATROL_POINTS} patrol points...`); // <<< Keep log, but points won't be added
             for (let i = 0; i < NUM_PATROL_POINTS; i++) {
-                const direction = getFibonacciLatticePoint(i, NUM_PATROL_POINTS);
-                const pointPos = direction.multiplyScalar(planetRadius + visualPointHeight);
-                pointPos.add(planetCenter); // Add planet's offset if any
+                // const direction = getFibonacciLatticePoint(i, NUM_PATROL_POINTS); // <<< COMMENTED OUT
+                // const pointPos = direction.multiplyScalar(planetRadius + visualPointHeight); // <<< COMMENTED OUT
+                // pointPos.add(planetCenter); // Add planet's offset if any // <<< COMMENTED OUT
 
-                const pointMesh = new THREE.Mesh(pointGeo, pointMat);
-                pointMesh.position.copy(homePlanetRef.worldToLocal(pointPos.clone())); // Convert to local space of planet
-                homePlanetRef.add(pointMesh); // Add as child of planet
+                // const pointMesh = new THREE.Mesh(pointGeo, pointMat); // <<< COMMENTED OUT
+                // pointMesh.position.copy(homePlanetRef.worldToLocal(pointPos.clone())); // Convert to local space of planet // <<< COMMENTED OUT
+                // homePlanetRef.add(pointMesh); // Add as child of planet // <<< COMMENTED OUT
             }
-            console.log("Enemy INIT: Patrol point visualization complete.");
+            console.log("Enemy INIT: Patrol point visualization disabled."); // <<< Updated log
             // -------------------------------
 
-            // --- Initialize Animation Mixer ---
+            // --- Initialize Animation Mixer --- 
             if (enemyState.animations && enemyState.animations.length > 0) {
                 enemyState.mixer = new THREE.AnimationMixer(model);
                 
-                // Find walk and idle animations (assuming walk is first, idle by name)
+                // --- Log all animation names --- <<< NEW DEBUG
+                console.log("[Enemy Anim Names] Found animations:");
+                enemyState.animations.forEach((clip, index) => {
+                    console.log(`  [${index}]: ${clip.name}`);
+                });
+                // -------------------------------
+
                 let walkClip = enemyState.animations[0]; // Assume first is walk
-                let idleClip = enemyState.animations.find(clip => clip.name.toLowerCase().includes('idle'));
 
                 if (walkClip) {
                     enemyState.actions.walk = enemyState.mixer.clipAction(walkClip);
-                    // Start walk animation initially, fade it in
-                    enemyState.actions.walk.play();
-                     enemyState.actions.walk.fadeIn(0.5);
-                     console.log(`Enemy INIT: Playing walk animation: ${walkClip.name || 'default'}`);
+                    // Play walk initially, control visibility/pause based on state
+                    enemyState.actions.walk.play(); 
+                    if (enemyState.currentState === EnemyAIState.SLEEPING) {
+                        enemyState.actions.walk.weight = 1; // Start faded IN if sleeping
+                        enemyState.actions.walk.timeScale = 0; // Start PAUSED if sleeping
+                         console.log(`Enemy INIT: Starting asleep, playing PAUSED walk animation: ${walkClip.name}`);
+                    } else {
+                         enemyState.actions.walk.weight = 1; // Start faded IN if patrolling
+                         enemyState.actions.walk.timeScale = 1; // Start running if patrolling
+                         console.log(`Enemy INIT: Starting awake, playing walk animation: ${walkClip.name}`);
+                    }
                 } else {
                     console.warn("Enemy INIT: Could not find walk animation clip.");
-                }
-
-                if (idleClip) {
-                    enemyState.actions.idle = enemyState.mixer.clipAction(idleClip);
-                    enemyState.actions.idle.weight = 0; // Start idle faded out
-                    enemyState.actions.idle.play(); 
-                    console.log(`Enemy INIT: Found idle animation: ${idleClip.name}`);
-                } else {
-                    console.log("Enemy INIT: No specific 'idle' animation found. Walk animation will stop/pause during scan.");
                 }
 
             } else {
@@ -377,6 +388,13 @@ export function initEnemy(scene, homePlanet) {
                 console.warn("Enemy INIT: Enemy movement sound not found in loadedSounds.");
             }
             // -----------------------------
+
+            // --- NEW: Set initial visibility based on state ---
+            if (enemyState.currentState === EnemyAIState.SLEEPING) {
+                model.visible = false;
+                console.log("Enemy INIT: Starting asleep, mesh set to invisible.");
+            }
+            // ------------------------------------------------
 
             enemyState.isInitialized = true;
         },
@@ -473,18 +491,10 @@ export function updateEnemy(deltaTime, playerMesh) {
                 if (movementSound && enemyState.isMovingSoundPlaying) movementSound.stop();
                 enemyState.isMovingSoundPlaying = false;
                 if (enemyState.spotLight) enemyState.spotLight.intensity = 0.1;
-                if (enemyState.actions.walk) enemyState.actions.walk.fadeOut(FADE_DURATION);
-                if (enemyState.actions.idle) {
-                    enemyState.actions.idle.fadeIn(FADE_DURATION);
-                    setTimeout(() => {
-                        if (enemyState.currentState === EnemyAIState.SLEEPING) {
-                            enemyState.actions.idle.timeScale = 0;
-                            console.log("[Enemy Anim] Paused idle animation for sleep.");
-                        }
-                    }, FADE_DURATION * 1000);
+                if (enemyState.actions.walk) {
+                    // enemyState.actions.walk.fadeOut(FADE_DURATION); // No need to fade if pausing
+                    enemyState.actions.walk.timeScale = 0; 
                 }
-                enemyVelocity.set(0,0,0);
-                targetWorldPos = null;
                 enemyState.isFadingToAwakeMusic = false; // Reset other flag on state entry
                 break; 
             }
@@ -501,8 +511,10 @@ export function updateEnemy(deltaTime, playerMesh) {
                 enemyState.statusText = "Hunting (Player Visible)"; // Update status
 
                 // Fade from walk/idle to walk
-                if (enemyState.actions.idle) enemyState.actions.idle.fadeOut(FADE_DURATION);
-                if (enemyState.actions.walk) enemyState.actions.walk.fadeIn(FADE_DURATION);
+                if (enemyState.actions.walk) {
+                    enemyState.actions.walk.timeScale = 1; // Ensure resumed
+                    // enemyState.actions.walk.fadeIn(FADE_DURATION); // Fade handled below?
+                }
                 break; // Exit switch for this frame
             } else {
                 // Player not seen (or hunt disabled), reset delay timer
@@ -527,8 +539,15 @@ export function updateEnemy(deltaTime, playerMesh) {
             targetWorldPos = currentTargetWorldPos; // Set the target for movement logic
 
             // Ensure walk animation is playing while moving to patrol point
-             if (enemyState.actions.idle?.getEffectiveWeight() === 1.0) enemyState.actions.idle.fadeOut(FADE_DURATION);
-             if (enemyState.actions.walk && enemyState.actions.walk?.getEffectiveWeight() === 0.0) enemyState.actions.walk.fadeIn(FADE_DURATION);
+             if (enemyState.actions.walk) {
+                enemyState.actions.walk.timeScale = 1; // Ensure resumed
+                // Check weight before fading in? Might not be needed if always paused/resumed
+                 if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) { // Only fade if needed?
+                     enemyState.actions.walk.fadeIn(FADE_DURATION);
+                 } else {
+                     enemyState.actions.walk.weight = 1.0; // Ensure full weight if not fading
+                 }
+             }
             
             // Check if reached target
             if (_enemyWorldPos.distanceToSquared(targetWorldPos) < PATROL_TARGET_REACH_DISTANCE_SQ) {
@@ -545,16 +564,19 @@ export function updateEnemy(deltaTime, playerMesh) {
                     enemyState.scanTimer = 0;
                     enemyState.scanDuration = MIN_SCAN_DURATION + Math.random() * (MAX_SCAN_DURATION - MIN_SCAN_DURATION);
                     console.log(`ENEMY SCAN: Set duration to ${enemyState.scanDuration.toFixed(2)}s`);
-                    // Fade anims
-                    if (enemyState.actions.walk) enemyState.actions.walk.fadeOut(FADE_DURATION);
-                    if (enemyState.actions.idle) enemyState.actions.idle.fadeIn(FADE_DURATION);
-                    // Ensure scanning sound starts (handled in SCANNING state logic)
-
+                    // Pause walk animation
+                    if (enemyState.actions.walk) {
+                         enemyState.actions.walk.timeScale = 0; 
+                         // enemyState.actions.walk.fadeOut(FADE_DURATION); // Remove fade
+                    }
                 } else {
                      console.log(`ENEMY STATE: Reached point ${enemyState.currentPatrolPointIndex - 1}. Next point (${enemyState.currentPatrolPointIndex}) is odd, moving directly.`);
                      // No state change, new target will be picked next frame using the incremented index
-                     // Ensure walk animation is still playing
-                     // ... (existing animation check/fade logic is fine) ...
+                     // Ensure walk animation is still playing (resumed)
+                     if (enemyState.actions.walk) {
+                         enemyState.actions.walk.timeScale = 1;
+                         enemyState.actions.walk.weight = 1.0; // Ensure full weight
+                     }
                 }
             }
             // --------------------------------------
@@ -588,8 +610,10 @@ export function updateEnemy(deltaTime, playerMesh) {
                 enemyState.statusText = "Hunting (Target Visible)";
 
                 // Fade from idle to walk
-                if (enemyState.actions.idle) enemyState.actions.idle.fadeOut(FADE_DURATION);
-                if (enemyState.actions.walk) enemyState.actions.walk.fadeIn(FADE_DURATION);
+                if (enemyState.actions.walk) {
+                    enemyState.actions.walk.timeScale = 1;
+                    enemyState.actions.walk.fadeIn(FADE_DURATION);
+                }
                 // Start movement sound (handled by HUNTING state logic/velocity check)
                 break; // Exit switch for this frame
             }
@@ -609,18 +633,21 @@ export function updateEnemy(deltaTime, playerMesh) {
                 // targetWorldPos = null; // No need to set this, PATROLLING will calculate next point
                 enemyState.timeInSpotlight = 0; // Reset hunt timer when returning to patrol
                 enemyState.statusText = `Patrolling (${Math.max(0, PATROL_DURATION - enemyState.patrolTimer).toFixed(1)}s left)`;
-                // Fade back to walk animation
-                if (enemyState.actions.idle) enemyState.actions.idle.fadeOut(FADE_DURATION);
-                if (enemyState.actions.walk) enemyState.actions.walk.fadeIn(FADE_DURATION);
+                // Resume walk animation
+                if (enemyState.actions.walk) {
+                    enemyState.actions.walk.timeScale = 1;
+                    enemyState.actions.walk.fadeIn(FADE_DURATION);
+                }
                 // --- Reset Spotlight Target Helper Position ---
                 if (enemyState.spotLightTargetHelper) {
                     enemyState.spotLightTargetHelper.position.set(-15, 0, 0); // Default forward
                 }
                 // --------------------------------------------
             } else {
-                // Ensure idle animation is playing (or walk is stopped)
-                 if (enemyState.actions.idle?.getEffectiveWeight() < 1.0) enemyState.actions.idle?.fadeIn(FADE_DURATION);
-                 if (enemyState.actions.walk?.getEffectiveWeight() > 0.0) enemyState.actions.walk?.fadeOut(FADE_DURATION);
+                // Ensure walk animation is paused during scan
+                 if (enemyState.actions.walk) {
+                    enemyState.actions.walk.timeScale = 0; // Ensure paused
+                 }
             }
             break;
 
@@ -682,8 +709,15 @@ export function updateEnemy(deltaTime, playerMesh) {
                 enemyState.timeInSpotlight = 0; // Reset hunt delay timer if seen while hunting
                 enemyState.statusText = "Hunting (Target Visible)";
                 // Ensure walk animation is playing
-                if (enemyState.actions.idle?.getEffectiveWeight() === 1.0) enemyState.actions.idle.fadeOut(FADE_DURATION);
-                if (enemyState.actions.walk && enemyState.actions.walk?.getEffectiveWeight() === 0.0) enemyState.actions.walk.fadeIn(FADE_DURATION);
+                if (enemyState.actions.walk) {
+                     enemyState.actions.walk.timeScale = 1; // Ensure resumed
+                    // Fade handled below?
+                     if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) { // Only fade if needed?
+                         enemyState.actions.walk.fadeIn(FADE_DURATION);
+                     } else {
+                          enemyState.actions.walk.weight = 1.0; // Ensure full weight if not fading
+                     }
+                 }
 
                 // --- Smoothly Update Spotlight Target Helper Position ---
                 if (enemyState.spotLightTargetHelper) {
@@ -709,8 +743,14 @@ export function updateEnemy(deltaTime, playerMesh) {
                     targetWorldPos = enemyState.lastKnownPlayerWorldPos; // Target LAST known position
                     enemyState.statusText = `Hunting (Searching)`;
                     // Keep walking animation
-                    if (enemyState.actions.idle?.getEffectiveWeight() === 1.0) enemyState.actions.idle.fadeOut(FADE_DURATION);
-                    if (enemyState.actions.walk && enemyState.actions.walk?.getEffectiveWeight() === 0.0) enemyState.actions.walk.fadeIn(FADE_DURATION);
+                    if (enemyState.actions.walk) {
+                        enemyState.actions.walk.timeScale = 1; // Ensure resumed
+                        if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) { // Only fade if needed?
+                            enemyState.actions.walk.fadeIn(FADE_DURATION);
+                         } else {
+                              enemyState.actions.walk.weight = 1.0; // Ensure full weight if not fading
+                         }
+                    }
                 } else {
                     // Give up hunting!
                     console.log(`ENEMY STATE: Lost player for ${HUNT_GIVE_UP_TIME}s. Giving up hunt, returning to PATROLLING.`);
@@ -722,8 +762,14 @@ export function updateEnemy(deltaTime, playerMesh) {
                     enemyState.timeInSpotlight = 0; // Reset hunt delay timer
                     enemyState.statusText = `Patrolling (${Math.max(0, PATROL_DURATION - enemyState.patrolTimer).toFixed(1)}s left)`;
                     // Ensure walk animation is playing for patrol start
-                    if (enemyState.actions.idle?.getEffectiveWeight() === 1.0) enemyState.actions.idle.fadeOut(FADE_DURATION);
-                    if (enemyState.actions.walk && enemyState.actions.walk?.getEffectiveWeight() === 0.0) enemyState.actions.walk.fadeIn(FADE_DURATION);
+                    if (enemyState.actions.walk) {
+                        enemyState.actions.walk.timeScale = 1; // Ensure resumed
+                        if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) { // Only fade if needed?
+                            enemyState.actions.walk.fadeIn(FADE_DURATION);
+                         } else {
+                              enemyState.actions.walk.weight = 1.0; // Ensure full weight if not fading
+                         }
+                    }
                 }
                 // --- Reset Spotlight Target Helper Position (when searching) ---
                 if (enemyState.spotLightTargetHelper) {
@@ -753,20 +799,10 @@ export function updateEnemy(deltaTime, playerMesh) {
                 enemyState.spotLight.intensity = 0.1; // Dim if not already dimmed
             }
 
-            // Ensure idle animation is playing
-            if (enemyState.actions.walk) enemyState.actions.walk.fadeOut(FADE_DURATION);
-            if (enemyState.actions.idle) {
-                enemyState.actions.idle.fadeIn(FADE_DURATION);
-                // Wait for fade to likely complete then pause animation
-                setTimeout(() => {
-                    if (enemyState.currentState === EnemyAIState.SLEEPING) { // Check if still sleeping
-                        enemyState.actions.idle.timeScale = 0; 
-                        console.log("[Enemy Anim] Paused idle animation for sleep.");
-                    }
-                }, FADE_DURATION * 1000); // Delay matches fade duration
+            // Ensure walk animation is paused
+            if (enemyState.actions.walk) {
+                enemyState.actions.walk.timeScale = 0; // Ensure paused
             }
-            // Stop movement
-            enemyVelocity.set(0,0,0);
 
             // --- Wake Timer / Pre-Wake Fade Check --- <<< MODIFIED
             enemyState.sleepTimer += deltaTime;
@@ -783,19 +819,22 @@ export function updateEnemy(deltaTime, playerMesh) {
                 enemyState.sleepTimer = 0; 
                 enemyState.patrolTimer = 0; 
                 enemyState.statusText = `Patrolling (${Math.max(0, PATROL_DURATION - enemyState.patrolTimer).toFixed(1)}s left)`;
-                // playAppropriateMusic(true); // <<< REMOVED from here
+                playAppropriateMusic(true); // Play danger theme for awake
                 // Restore light intensity
                 if (enemyState.spotLight) enemyState.spotLight.intensity = enemyState.originalSpotlightIntensity;
-                // Resume Idle Animation
-                if (enemyState.actions.idle) {
-                   enemyState.actions.idle.timeScale = 1;
-                   console.log("[Enemy Anim] Resumed idle animation before fade.");
+
+                // --- Resume and Fade Walk Animation --- 
+                if (enemyState.actions.walk) {
+                    enemyState.actions.walk.timeScale = 1; // RESUME
+                    enemyState.actions.walk.reset(); // Reset to beginning
+                    enemyState.actions.walk.play();  // Ensure it's playing
+                    enemyState.actions.walk.fadeIn(FADE_DURATION); 
+                    console.log(`[Enemy Anim] Resumed and fading in walk animation.`);
                 }
-                // Fade back to walk animation
-                if (enemyState.actions.idle) enemyState.actions.idle.fadeOut(FADE_DURATION);
-                if (enemyState.actions.walk) enemyState.actions.walk.fadeIn(FADE_DURATION);
-                // Let PATROLLING state handle movement target next frame
-                enemyState.isFadingToSleepMusic = false; // Reset other flag on state entry
+                // ------------------------------------
+
+                enemyState.mesh.visible = true; // Show mesh
+                enemyState.isFadingToSleepMusic = false; // Reset flag
                 break;
             }
             break;

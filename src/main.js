@@ -375,15 +375,17 @@ async function init() {
             // --------------------------
 
             // --- Start Initial Music --- 
-            // playAppropriateMusic(true); // Old fade call
+            // playAppropriateMusic(true); // Enemy starts awake, play danger theme // <<< OLD
+            playAppropriateMusic(false); // Enemy starts asleep, play normal theme // <<< NEW
+            /* // Old direct play logic
             if (window.loadedSounds?.dangerThemeSound && window.loadedSounds.dangerThemeSound.buffer && !window.loadedSounds.dangerThemeSound.isPlaying) {
-                // Start danger theme directly at its base volume
                 window.loadedSounds.dangerThemeSound.setVolume(window.loadedSounds.dangerThemeSound.userData.baseVolume || 0.3);
                 window.loadedSounds.dangerThemeSound.play();
                 console.log("[Music] Started initial danger theme directly.");
             } else {
                 console.warn("[Music] Could not start initial danger theme.");
             }
+            */
             // --------------------------
 
         } catch (error) {
