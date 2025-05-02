@@ -8,6 +8,7 @@
 # Ignore asset folders
 models/
 sfx/
+textures/
 
 # macOS
 .DS_Store 

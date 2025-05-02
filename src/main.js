@@ -52,6 +52,7 @@ let scene, camera, renderer, audioListener;
 let composer; // NEW: For post-processing
 let homePlanet;
 let planetsState = {}; // Populated by initPlanets
+let globalLowPassFilter = null; // <<< NEW: For system view audio effect
 let stats; // Declare stats globally
 
 // --- Mini-Map Components ---
@@ -137,6 +138,13 @@ const _mapTargetUp = new THREE.Vector3(); // For orienting map objects
 const _mapOrientationQuat = new THREE.Quaternion();
 const _yAxis = new THREE.Vector3(0, 1, 0);
 // --------------------------------------
+
+// --- Audio Filter Transition ---
+const FILTER_TRANSITION_DURATION = 2.0; // seconds (Increased from 0.8)
+let isFilterTransitioning = false;
+let filterTransitionStartTime = 0;
+let filterStartFrequency = 20000; // Store the frequency where the transition starts
+let filterTargetFrequency = 20000; // Store the frequency to transition to
 
 // --- Debug Counter ---
 let spacebarPressCount = 0; 
@@ -343,22 +351,65 @@ function handleDebugEnableTerraformButton() {
 }
 
 function handleFocusToggleClick() {
-    isDebugCameraActive = !isDebugCameraActive; // Toggle the NEW flag
+    // Ensure audio context is running and filter exists
+    if (!audioListener?.context || !globalLowPassFilter) {
+        console.error("Cannot toggle audio filter: Audio context or filter node missing.");
+        return;
+    }
+    const audioCtx = audioListener.context;
 
-    if (isDebugCameraActive) { // Check NEW flag
-        if(debugFocusVerdantButton) debugFocusVerdantButton.textContent = 'Player View'; // New text
-        console.log("Debug Focus: Switched to Solar System View"); // Update log
-        // Add mouse listener
+    // Resume context if needed
+    if (audioCtx.state === 'suspended') {
+        console.warn("Audio context is suspended, attempting resume...");
+        audioCtx.resume().then(() => {
+            console.log("Audio context resumed, re-calling toggle.");
+            handleFocusToggleClick();
+        }).catch(err => {
+            console.error("Failed to resume audio context:", err);
+        });
+        // Don't revert toggle state here, let the resumed call handle it
+        return; 
+    }
+
+    // Toggle the main state
+    isDebugCameraActive = !isDebugCameraActive;
+
+    // Get target frequency and current time
+    // NOTE: Exponential ramp cannot target 0Hz. Use a very small positive value instead.
+    const targetFrequency = isDebugCameraActive ? 300 : 20000; 
+    const now = audioCtx.currentTime;
+    const endTime = now + FILTER_TRANSITION_DURATION;
+
+    // Update button text and add/remove mouse listener
+    if (isDebugCameraActive) { 
+        if(debugFocusVerdantButton) debugFocusVerdantButton.textContent = 'Player View';
+        console.log("Debug Focus: Switched to Solar System View"); 
         document.addEventListener( 'mousemove', onDocumentMouseMove, false );
     } else {
-        if(debugFocusVerdantButton) debugFocusVerdantButton.textContent = 'System View'; // New text
-        console.log("Debug Focus: Switched to Player Camera"); // Update log
-        // Remove mouse listener and clear hover state
+        if(debugFocusVerdantButton) debugFocusVerdantButton.textContent = 'System View'; 
+        console.log("Debug Focus: Switched to Player Camera"); 
         document.removeEventListener( 'mousemove', onDocumentMouseMove, false );
         hoveredPlanet = null;
-        if (planetOutlineElement) planetOutlineElement.style.display = 'none'; // Hide CSS outline
-        if (planetTooltipElement) planetTooltipElement.style.display = 'none'; // Hide tooltip
+        if (planetOutlineElement) planetOutlineElement.style.display = 'none'; 
+        if (planetTooltipElement) planetTooltipElement.style.display = 'none'; 
     }
+
+    // --- Initiate Exponential Ramp ---
+    try {
+        // Get current value accurately
+        const currentFrequency = globalLowPassFilter.frequency.value;
+        // Cancel previous ramps and set starting point accurately
+        globalLowPassFilter.frequency.cancelScheduledValues(now);
+        globalLowPassFilter.frequency.setValueAtTime(currentFrequency, now);
+        // Schedule the exponential ramp
+        globalLowPassFilter.frequency.exponentialRampToValueAtTime(targetFrequency, endTime);
+        console.log(`Audio Filter: Starting EXPONENTIAL ramp from ${currentFrequency.toFixed(0)}Hz to ${targetFrequency}Hz over ${FILTER_TRANSITION_DURATION}s`);
+    } catch (e) {
+        console.error("Error scheduling exponential ramp:", e);
+        // Fallback: Snap to target frequency if ramp fails
+        globalLowPassFilter.frequency.setValueAtTime(targetFrequency, now);
+    }
+    // -------------------------------
 }
 
 // --- NEW: Mouse Move Handler for Raycasting ---
@@ -390,6 +441,25 @@ async function init() {
         camera = sceneObjs.camera;
         renderer = sceneObjs.renderer;
         audioListener = sceneObjs.audioListener;
+
+        // --- NEW: Create and Connect Global Low Pass Filter ---
+        if (audioListener?.context && audioListener?.gain) {
+            globalLowPassFilter = audioListener.context.createBiquadFilter();
+            globalLowPassFilter.type = 'lowpass';
+            // Start with filter effectively off (high frequency)
+            globalLowPassFilter.frequency.value = 20000; 
+            globalLowPassFilter.Q.value = 1; // Resonance
+            
+            // Connect listener gain -> filter -> destination
+            audioListener.gain.disconnect(); // Disconnect default connection
+            audioListener.gain.connect(globalLowPassFilter);
+            globalLowPassFilter.connect(audioListener.context.destination);
+            
+            console.log("Main INIT: Global Low Pass filter created and connected.");
+        } else {
+            console.error("Main INIT: Could not create/connect filter - AudioListener, context or gain missing.");
+        }
+        // ----------------------------------------------------
 
         // --- Step 1.1: Initialize Post-Processing ---
         composer = new EffectComposer(renderer);
@@ -1063,7 +1133,26 @@ function animate() {
     requestAnimationFrame(animate);
 
     const deltaTime = clock.getDelta();
-    const now = performance.now();
+    const now = performance.now(); // performance.now() for general timing
+    const audioNow = audioListener?.context?.currentTime ?? 0; // Web Audio time for audio scheduling
+
+    // --- Update Filter Transition --- 
+    if (isFilterTransitioning && globalLowPassFilter && audioNow > 0) {
+        const elapsed = audioNow - filterTransitionStartTime;
+        let progress = Math.min(elapsed / FILTER_TRANSITION_DURATION, 1.0);
+        
+        // Optional: Add easing function (e.g., ease-in-out)
+        // progress = 0.5 - 0.5 * Math.cos(progress * Math.PI); 
+
+        const currentFreq = filterStartFrequency + (filterTargetFrequency - filterStartFrequency) * progress;
+        globalLowPassFilter.frequency.value = currentFreq; // Set value directly
+
+        if (progress >= 1.0) {
+            isFilterTransitioning = false;
+            console.log(`Audio Filter: Transition finished at ${currentFreq.toFixed(0)}Hz`);
+        }
+    }
+    // ------------------------------
 
     // --- Initialize Pal (once player is ready) ---
     if (!isPalInitialized && window.playerState?.mesh && homePlanet) {

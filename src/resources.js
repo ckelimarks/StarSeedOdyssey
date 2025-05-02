@@ -67,7 +67,7 @@ let dangerThemeSound = null;
 const THEME_MUSIC_VOLUME = 0.14;
 const DANGER_THEME_VOLUME = 0.3; 
 // const MUSIC_CROSSFADE_DURATION = 1.5; // seconds // <<< OLD
-const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // seconds <<< NEW
+const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // seconds <<< Reverted from 8.0 test value
 // --------------------------------
 
 // --- Cooldown Tracking ---
@@ -1143,7 +1143,7 @@ function playPalArrivalSound() {
     } 
     palArrivalSound.play();
     lastPalArrivalSoundTime = now; // Update last played time
-    console.log("[Pal Sound] Played Pal Arrival Sound"); 
+    // console.log("[Pal Sound] Played Pal Arrival Sound"); 
 }
 // --- END Play Pal Arrival Sound ---
 
@@ -1156,7 +1156,7 @@ function playPlayerJumpSound() {
         sound.stop(); // Restart if somehow still playing
     }
     sound.play();
-    console.log("[Player Sound] Played Jump Sound"); // Debug Log
+    // console.log("[Player Sound] Played Jump Sound"); // Debug Log
 }
 // --- END Play Player Jump Sound ---
 
@@ -1171,7 +1171,7 @@ function playPlayerLandSound() {
         sound.stop(); // Let's restart it for now
     }
     sound.play();
-    console.log("[Player Sound] Played Land Sound"); // Debug Log
+    // console.log("[Player Sound] Played Land Sound"); // Debug Log
 }
 // --- END Play Player Land Sound ---
 
@@ -1784,25 +1784,38 @@ function playAppropriateMusic(isEnemyAwake) {
 
 // Helper function to schedule the fade after ensuring context is running
 function scheduleFade(isEnemyAwake, themeSound, dangerSound, audioCtx) {
-    const fadeEndTime = audioCtx.currentTime + MUSIC_ANTICIPATION_FADE_DURATION; // <<< NEW
+    const fadeEndTime = audioCtx.currentTime + MUSIC_ANTICIPATION_FADE_DURATION;
     const themeTargetVolume = isEnemyAwake ? 0 : themeSound.userData.baseVolume;
     const dangerTargetVolume = isEnemyAwake ? dangerSound.userData.baseVolume : 0;
+    const now = audioCtx.currentTime; // Get current time once
 
-    console.log(`[Music Crossfade] CurrentTime: ${audioCtx.currentTime.toFixed(2)}, FadeEndTime: ${fadeEndTime.toFixed(2)}`);
+    // <<< Log gain node value >>>
+    const currentThemeGain = themeSound.gain?.gain?.value ?? 'N/A';
+    const currentDangerGain = dangerSound.gain?.gain?.value ?? 'N/A';
+
+    console.log(`[Music Crossfade] CurrentTime: ${now.toFixed(2)}, FadeEndTime: ${fadeEndTime.toFixed(2)}`);
     console.log(`[Music Crossfade] Target Volumes - Theme: ${themeTargetVolume}, Danger: ${dangerTargetVolume}`);
-    console.log(`[Music Crossfade] Current Gains - Theme: ${themeSound.getVolume().toFixed(2)}, Danger: ${dangerSound.getVolume().toFixed(2)}`);
+    console.log(`[Music Crossfade] Current Gains - Theme: ${currentThemeGain.toFixed ? currentThemeGain.toFixed(2) : currentThemeGain}, Danger: ${currentDangerGain.toFixed ? currentDangerGain.toFixed(2) : currentDangerGain}`);
 
     // --- Start sounds only if they are NOT already playing AND need to fade IN --- 
     if (dangerTargetVolume > 0 && !dangerSound.isPlaying) {
-        // if (dangerSound.isPlaying) dangerSound.stop(); // <<< REMOVE Stop
         console.log(`[Music] Starting danger theme (for fade-in from silent).`);
-        dangerSound.setVolume(0.001); // Set volume very low before playing
+        // <<< Explicitly set gain node value low >>>
+        if (dangerSound.gain?.gain) {
+             dangerSound.gain.gain.setValueAtTime(0.001, now); // Set gain low NOW
+        } else {
+             dangerSound.setVolume(0.001); // Fallback
+        }
         dangerSound.play(); 
     }
     if (themeTargetVolume > 0 && !themeSound.isPlaying) {
-        // if (themeSound.isPlaying) themeSound.stop(); // <<< REMOVE Stop
         console.log(`[Music] Starting normal theme (for fade-in from silent).`);
-        themeSound.setVolume(0.001); // Set volume very low before playing
+         // <<< Explicitly set gain node value low >>>
+        if (themeSound.gain?.gain) {
+             themeSound.gain.gain.setValueAtTime(0.001, now); // Set gain low NOW
+        } else {
+             themeSound.setVolume(0.001); // Fallback
+        }
         themeSound.play();
     }
     // ---------------------------------------------------------------------------
@@ -1810,12 +1823,34 @@ function scheduleFade(isEnemyAwake, themeSound, dangerSound, audioCtx) {
     // --- Schedule Gain Ramps --- 
     console.log(`[Music] Scheduling fade - Theme to ${themeTargetVolume}, Danger to ${dangerTargetVolume}. Current IsPlaying - Theme: ${themeSound.isPlaying}, Danger: ${dangerSound.isPlaying}`);
     if (themeSound.gain?.gain) {
+        // <<< Explicitly cancel previous ramps and set start value >>>
+        themeSound.gain.gain.cancelScheduledValues(now);
+        themeSound.gain.gain.setValueAtTime(themeSound.gain.gain.value, now); // Start ramp from current value
+        // Use LINEAR ramp for all fades now for testing
         themeSound.gain.gain.linearRampToValueAtTime(themeTargetVolume, fadeEndTime);
+        /* // Use exponential ramp for fade-out, linear for fade-in
+        if (themeTargetVolume === 0) {
+            themeSound.gain.gain.exponentialRampToValueAtTime(0.0001, fadeEndTime);
+        } else {
+            themeSound.gain.gain.linearRampToValueAtTime(themeTargetVolume, fadeEndTime);
+        }
+        */
     } else {
         console.warn("[Music] Theme sound gain node not found!");
     }
     if (dangerSound.gain?.gain) {
+         // <<< Explicitly cancel previous ramps and set start value >>>
+        dangerSound.gain.gain.cancelScheduledValues(now);
+        dangerSound.gain.gain.setValueAtTime(dangerSound.gain.gain.value, now); // Start ramp from current value
+        // Use LINEAR ramp for all fades now for testing
         dangerSound.gain.gain.linearRampToValueAtTime(dangerTargetVolume, fadeEndTime);
+        /* // Use exponential ramp for fade-out, linear for fade-in
+        if (dangerTargetVolume === 0) {
+            dangerSound.gain.gain.exponentialRampToValueAtTime(0.0001, fadeEndTime);
+        } else {
+            dangerSound.gain.gain.linearRampToValueAtTime(dangerTargetVolume, fadeEndTime);
+        }
+        */
     } else {
         console.warn("[Music] Danger sound gain node not found!");
     }
@@ -1823,8 +1858,9 @@ function scheduleFade(isEnemyAwake, themeSound, dangerSound, audioCtx) {
 
     // --- Stop sounds after fade-out --- 
     setTimeout(() => {
-        const postFadeThemeGain = themeSound.getVolume();
-        const postFadeDangerGain = dangerSound.getVolume();
+        // <<< Use gain node value for check >>>
+        const postFadeThemeGain = themeSound.gain?.gain?.value ?? -1; // Use -1 if unavailable
+        const postFadeDangerGain = dangerSound.gain?.gain?.value ?? -1; // Use -1 if unavailable
          console.log(`[Music Post-Fade Check] Time: ${audioCtx.currentTime.toFixed(2)} TargetGains - Theme: ${themeTargetVolume}, Danger: ${dangerTargetVolume} | ActualGains - Theme: ${postFadeThemeGain.toFixed(2)}, Danger: ${postFadeDangerGain.toFixed(2)}`);
 
         if (themeTargetVolume < 0.01 && postFadeThemeGain < 0.01 && themeSound.isPlaying) { 
