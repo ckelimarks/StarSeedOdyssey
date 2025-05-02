@@ -96,6 +96,15 @@ let debugFocusVerdantButton = null; // NEW: Reference for focus button
 let boostMeterFillElement = null; // NEW
 let boostStatusElement = null; // NEW
 let enemyStatusElement = null; // <<< ADDED
+let planetTooltipElement = null; // <<< NEW: For hover info
+let planetOutlineElement = null; // <<< NEW: For CSS outline
+
+// --- Raycasting & Hover State ---
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2(); // Normalized device coordinates (-1 to +1)
+let hoveredPlanet = null; // Reference to the currently hovered planet { name, mesh }
+let intersectablePlanets = []; // Array of meshes/groups to check for intersection
+// -------------------------------
 
 // --- NEW: Pal State ---
 let isPalInitialized = false;
@@ -339,11 +348,28 @@ function handleFocusToggleClick() {
     if (isDebugCameraActive) { // Check NEW flag
         if(debugFocusVerdantButton) debugFocusVerdantButton.textContent = 'Player View'; // New text
         console.log("Debug Focus: Switched to Solar System View"); // Update log
+        // Add mouse listener
+        document.addEventListener( 'mousemove', onDocumentMouseMove, false );
     } else {
         if(debugFocusVerdantButton) debugFocusVerdantButton.textContent = 'System View'; // New text
         console.log("Debug Focus: Switched to Player Camera"); // Update log
+        // Remove mouse listener and clear hover state
+        document.removeEventListener( 'mousemove', onDocumentMouseMove, false );
+        hoveredPlanet = null;
+        if (planetOutlineElement) planetOutlineElement.style.display = 'none'; // Hide CSS outline
+        if (planetTooltipElement) planetTooltipElement.style.display = 'none'; // Hide tooltip
     }
 }
+
+// --- NEW: Mouse Move Handler for Raycasting ---
+function onDocumentMouseMove( event ) {
+    // Calculate mouse position in normalized device coordinates
+    // (-1 to +1) for both components
+    event.preventDefault(); // Prevent default browser actions
+    mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+    mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+}
+// --------------------------------------------
 
 // --- Initialize the application ---
 async function init() {
@@ -377,6 +403,18 @@ async function init() {
             0.85    // threshold
         );
         composer.addPass(bloomPass);
+
+        // --- NEW: Add Outline Pass ---
+        // outlinePass = new OutlinePass( new THREE.Vector2( window.innerWidth, window.innerHeight ), scene, camera );
+        // outlinePass.edgeStrength = 3.0;
+        // outlinePass.edgeGlow = 0.5;
+        // outlinePass.edgeThickness = 1.0;
+        // outlinePass.pulsePeriod = 0;
+        // outlinePass.visibleEdgeColor.set('#ffffff');
+        // outlinePass.hiddenEdgeColor.set('#190a05');
+        // composer.addPass( outlinePass );
+        // ---------------------------
+
         console.log("Main INIT: Post-processing composer and passes initialized.");
         // -------------------------------------------
 
@@ -441,6 +479,11 @@ async function init() {
         // Store home planet world position (assuming it doesn't move)
         homePlanet.getWorldPosition(_mapHomePlanetWorldPos);
         console.log("Main INIT: Planets initialized.");
+
+        // --- Populate intersectable planets list ---
+        intersectablePlanets = Object.values(planetsState).map(pData => pData.mesh);
+        console.log(`Main INIT: Populated intersectablePlanets list with ${intersectablePlanets.length} objects.`);
+        // -------------------------------------------
 
         // --- Load Purple Planet Model for Verdant Minor ---
         const verdantPlanetGroup = planetsState['Verdant Minor']?.mesh;
@@ -773,6 +816,37 @@ async function init() {
         enemyStatusElement.textContent = 'Enemy: Initializing...'; // Initial text
         document.body.appendChild(enemyStatusElement);
         // ----------------------------------
+
+        // --- NEW: Create Planet Tooltip Element ---
+        planetTooltipElement = document.createElement('div');
+        planetTooltipElement.id = 'planet-tooltip';
+        planetTooltipElement.style.position = 'absolute';
+        planetTooltipElement.style.display = 'none'; // Start hidden
+        planetTooltipElement.style.padding = '8px 12px';
+        planetTooltipElement.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        planetTooltipElement.style.color = 'white';
+        planetTooltipElement.style.borderRadius = '4px';
+        planetTooltipElement.style.border = '1px solid #555';
+        planetTooltipElement.style.fontFamily = 'Helvetica, Arial, sans-serif';
+        planetTooltipElement.style.fontSize = '12px';
+        planetTooltipElement.style.whiteSpace = 'pre'; // Use preformatted text for newlines
+        planetTooltipElement.style.pointerEvents = 'none'; // Prevent tooltip from blocking mouse events
+        planetTooltipElement.style.zIndex = '110'; // Above other UI
+        document.body.appendChild(planetTooltipElement);
+        // ----------------------------------------
+
+        // --- NEW: Create CSS Outline Element ---
+        planetOutlineElement = document.createElement('div');
+        planetOutlineElement.id = 'planet-outline';
+        planetOutlineElement.style.position = 'absolute';
+        planetOutlineElement.style.display = 'none'; // Start hidden
+        planetOutlineElement.style.border = '2px solid white'; // White border
+        planetOutlineElement.style.borderRadius = '50%'; // Make it circular
+        planetOutlineElement.style.pointerEvents = 'none'; // Prevent blocking mouse
+        planetOutlineElement.style.zIndex = '109'; // Just below tooltip
+        planetOutlineElement.style.boxSizing = 'border-box'; // Include border in size
+        document.body.appendChild(planetOutlineElement);
+        // -------------------------------------
 
         console.log("Main INIT: UI created.");
 
@@ -1327,6 +1401,93 @@ function animate() {
         // Explicitly set UP direction to avoid issues when looking straight down
         // Use negative Z as UP for a typical top-down view (X right, Z up)
         camera.up.set(0, 0, -1); 
+
+        // --- Raycasting for Planet Hover ---
+        raycaster.setFromCamera( mouse, camera );
+        const intersects = raycaster.intersectObjects( intersectablePlanets, true ); // Check descendants
+
+        let currentIntersectedGroup = null;
+        if (intersects.length > 0) {
+            // Find the closest intersected planet GROUP
+            for(const intersect of intersects) {
+                let obj = intersect.object;
+                while (obj.parent && !(intersectablePlanets.includes(obj))) {
+                    obj = obj.parent;
+                }
+                if (intersectablePlanets.includes(obj)) {
+                    currentIntersectedGroup = obj;
+                    break;
+                }
+            }
+        }
+
+        // --- Handle Hover State Change ---
+        if (currentIntersectedGroup) {
+            if (hoveredPlanet?.mesh !== currentIntersectedGroup) {
+                // --- New Hover Start ---
+                hoveredPlanet = { 
+                    mesh: currentIntersectedGroup,
+                    name: currentIntersectedGroup.name 
+                };
+                // Update Tooltip Text (only needs to happen once on hover start)
+                const planetData = planetsState[hoveredPlanet.name];
+                if (planetData && planetTooltipElement) {
+                    planetTooltipElement.textContent = 
+                        `${hoveredPlanet.name}\nSeeds: ${planetData.seedsDelivered} / ${planetData.seedsRequired}`;
+                }
+            }
+            // --- ELSE: Still hovering the same planet ---
+            
+        } else { // No intersection this frame
+            if ( hoveredPlanet !== null ) {
+                // --- Hover End ---
+                hoveredPlanet = null;
+                if (planetTooltipElement) planetTooltipElement.style.display = 'none'; 
+                if (planetOutlineElement) planetOutlineElement.style.display = 'none';
+            }
+        }
+        // --- End Hover State Change ---
+        
+        // --- Update Outline and Tooltip Position (if hovering) ---
+        if (hoveredPlanet && planetOutlineElement && planetTooltipElement) {
+            const planetCenterWorld = _vec3.copy(hoveredPlanet.mesh.position); // Use the group's position
+            let planetRadiusWorld = 25; // Default guess
+            // Get radius from config if possible
+            if (planetsState[hoveredPlanet.name]?.config?.radius) {
+                planetRadiusWorld = planetsState[hoveredPlanet.name].config.radius;
+            } else if (hoveredPlanet.mesh.geometry?.parameters?.radius) {
+                 // Fallback for sphere meshes (though Verdant Minor is group)
+                 planetRadiusWorld = hoveredPlanet.mesh.geometry.parameters.radius;
+            }
+
+            // Project center and edge points along X-axis to find screen diameter
+            const centerScreen = planetCenterWorld.clone().project(camera);
+            const edgeWorldX = planetCenterWorld.clone().add(new THREE.Vector3(planetRadiusWorld, 0, 0));
+            const edgeScreenX = edgeWorldX.clone().project(camera);
+            
+            // Calculate screen radius based on X distance
+            const screenRadius = Math.abs(edgeScreenX.x - centerScreen.x) * (window.innerWidth / 2);
+            const screenDiameter = screenRadius * 2;
+
+            // Calculate screen position of center
+            const screenX = (centerScreen.x * 0.5 + 0.5) * window.innerWidth;
+            const screenY = (-centerScreen.y * 0.5 + 0.5) * window.innerHeight;
+
+            // Style and position the outline div
+            planetOutlineElement.style.width = `${screenDiameter}px`;
+            planetOutlineElement.style.height = `${screenDiameter}px`;
+            planetOutlineElement.style.left = `${screenX - screenRadius}px`;
+            planetOutlineElement.style.top = `${screenY - screenRadius}px`;
+            planetOutlineElement.style.display = 'block';
+            
+            // Position Tooltip
+            planetTooltipElement.style.left = `${screenX + 15}px`; 
+            planetTooltipElement.style.top = `${screenY - 15}px`; 
+            planetTooltipElement.style.display = 'block';
+        }
+        // --- End Update Outline/Tooltip ---
+
+        // --- End Raycasting Logic Block ---
 
     } else if (isRocketActive()) { // Default rocket following
         updateCamera(camera, rocketMesh, homePlanet); 
