@@ -12,7 +12,7 @@ import {
     playPlayerJumpSound,
     playPlayerLandSound, // ADDED Land Sound Import
     inventory, // << IMPORT inventory
-    playSlowdownSound // <<< IMPORT Slowdown Sound Player
+    playSlowdownSound, // <<< IMPORT Slowdown Sound Player
 } from './resources.js'; // Import sound functions
 import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader.js'; // Use full URL
 
@@ -26,8 +26,10 @@ const keyState = {
     'ArrowRight': false,
     ' ': false, // Spacebar
     'Shift': false, // NEW: Track Shift key
-    'l': false // CHANGED: Use lowercase 'l' for launch key state
+    'l': false, // CHANGED: Use lowercase 'l' for launch key state
+    'b': false // NEW: Added 'B' key state
 };
+let bKeyPressedLastFrame = false; // NEW: Track B key state for toggling
 
 // Path Trail variables
 let pathPoints = []; // REVERTED: Back to pathPoints
@@ -69,6 +71,20 @@ let audioListenerRef = null;
 let isRollingSoundPlaying = false;
 let isRollingSoundFadingOut = false;
 let rollingFadeStartTime = 0;
+let wasFueledLastFrame = true; // Assume starting with fuel
+
+// --- NEW: Speech Bubble State ---
+let speechBubbleState = {
+    canvas: null,
+    context: null,
+    texture: null,
+    sprite: null,
+    isVisible: false,
+    // Default position offset (adjust later)
+    // Increase Y component multiplier from 3 to 6 for even higher
+    offset: new THREE.Vector3(0, config.PLAYER_RADIUS * 1.5 * 6, 0)
+};
+// -----------------------------
 
 // --- Boost Trail --- (NEW)
 let boostTrailPoints = [];
@@ -114,7 +130,8 @@ function initPlayer(scene, homePlanet, audioListener) {
         verticalVelocity: 0.0,
         isGrounded: true,
         // -----------------------
-        wasFueledLastFrame: true // NEW: Track fuel state for sound trigger
+        wasFueledLastFrame: true, // NEW: Track fuel state for sound trigger
+        boostTrail: null // NEW: Added boostTrail reference
     };
 
     // Player initial position is LOCAL to the home planet
@@ -229,6 +246,15 @@ function initPlayer(scene, homePlanet, audioListener) {
             scene.add(boostTrailMesh); // Add to the main scene
             console.log("Player INIT: Boost trail initialized.");
             // --- END NEW Boost Trail Init ---
+
+            // --- NEW: Initialize Speech Bubble ---
+            // Ensure player mesh exists before trying to attach
+            if (playerState.mesh) {
+                 initSpeechBubble(playerState.mesh); // Attach to the visual mesh
+            } else {
+                console.error("Player INIT Error: Cannot initialize speech bubble, player mesh not found.");
+            }
+            // -----------------------------------
 
         }, 
         undefined, // onProgress callback (optional)
@@ -760,11 +786,25 @@ export function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     }
     // ------------------------
 
+    // --- NEW: Speech Bubble Toggle Logic ---
+    if (speechBubbleState.sprite) { // Check if sprite exists
+        if (keyState['b'] && !bKeyPressedLastFrame) {
+            // 'B' key was just pressed
+            speechBubbleState.isVisible = !speechBubbleState.isVisible; // Toggle visibility state
+            speechBubbleState.sprite.visible = speechBubbleState.isVisible; // Update sprite visibility
+            console.log(`Speech Bubble toggled: ${speechBubbleState.isVisible ? 'Visible' : 'Hidden'}`);
+        }
+    }
+    // -------------------------------------
+
     // --- Update Rolling Sound ---
     const isMoving = playerVelocity.lengthSq() > config.VELOCITY_THRESHOLD_SQ;
 
     // --- Store boost state for next frame --- (This MUST be the last step for boost logic)
     playerState.wasBoostingLastFrame = isBoosting;
+
+    // --- Update last frame key states --- (MUST be at the very end)
+    bKeyPressedLastFrame = keyState['b']; // Update B key state for next frame
 }
 
 // Update Path Trail
@@ -927,3 +967,89 @@ function handleRollingSound(isMoving, playerState) {
     // }
 }
 // ---------------------------------
+
+/**
+ * Creates a speech bubble sprite with a basic shape.
+ * @param {THREE.Object3D} parentMesh The mesh to attach the bubble to.
+ * @returns {object} The speechBubbleState object containing references.
+ */
+function initSpeechBubble(parentMesh) {
+    const canvas = document.createElement('canvas');
+    const width = 256;
+    const height = 128;
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+
+    speechBubbleState.canvas = canvas;
+    speechBubbleState.context = context;
+
+    // --- Draw Bubble Shape ---
+    context.fillStyle = 'white';
+    context.strokeStyle = 'black';
+    context.lineWidth = 4;
+    const borderRadius = 20;
+    const tailWidth = 30;
+    const tailHeight = 30;
+
+    context.beginPath();
+    // Main rounded rectangle
+    context.moveTo(borderRadius, 0);
+    context.lineTo(width - borderRadius, 0);
+    context.quadraticCurveTo(width, 0, width, borderRadius);
+    context.lineTo(width, height - tailHeight - borderRadius);
+    context.quadraticCurveTo(width, height - tailHeight, width - borderRadius, height - tailHeight);
+    // Tail start
+    context.lineTo(width / 2 + tailWidth / 2, height - tailHeight);
+    context.lineTo(width / 2, height); // Point of tail
+    context.lineTo(width / 2 - tailWidth / 2, height - tailHeight);
+    // Continue rounded rectangle
+    context.lineTo(borderRadius, height - tailHeight);
+    context.quadraticCurveTo(0, height - tailHeight, 0, height - tailHeight - borderRadius);
+    context.lineTo(0, borderRadius);
+    context.quadraticCurveTo(0, 0, borderRadius, 0);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    // ----------------------
+
+    // --- Add Placeholder Text ---
+    context.fillStyle = 'black';
+    context.font = 'bold 24px Arial';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    // Adjust text position slightly within the bubble main area
+    // Replace "Hello!" with a math formula
+    context.fillText('∑(n=1 to ∞) = π²/12', width / 2, (height - tailHeight) / 2);
+    // -------------------------
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    speechBubbleState.texture = texture;
+
+    const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false, // Render on top
+        sizeAttenuation: true // Default, size depends on distance
+    });
+
+    const sprite = new THREE.Sprite(material);
+    sprite.name = "speechBubble";
+    
+    // Scale the sprite in world units (adjust these values)
+    // Multiply base size by 4 for 4x bigger
+    const desiredWorldWidth = config.PLAYER_RADIUS * 2.5 * 4; 
+    const aspect = width / height;
+    sprite.scale.set(desiredWorldWidth, desiredWorldWidth / aspect, 1);
+    
+    // Position relative to parent (using offset from state)
+    sprite.position.copy(speechBubbleState.offset);
+
+    sprite.visible = speechBubbleState.isVisible; // Start hidden
+    parentMesh.add(sprite);
+    speechBubbleState.sprite = sprite;
+
+    console.log("Speech bubble initialized and added to parent.");
+    return speechBubbleState;
+}
