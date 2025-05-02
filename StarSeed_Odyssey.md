@@ -227,4 +227,19 @@ This comparison reflects the state after significant development on the `player-
 *   **Expanded Solar System:** More planets, moons, asteroid belts.
 *   **Ship Upgrades:** Allow players to improve ship speed, capacity, or add tools.
 *   **Story/Narrative Elements:** Introduce a background story or mission objectives.
-*   **Player Jump Mechanic:** Allow the player ship to perform short jumps. 
+*   **Player Jump Mechanic:** Allow the player ship to perform short jumps.
+
+## Project Summary
+
+StarSeed: Odyssey is a 3D space exploration prototype where players pilot a ship on a home planet to gather Seeds (Trees) and Fuel (Crystals). The objective is to launch rockets carrying these resources to terraform target planets ('Infernia', 'Verdant Minor') by meeting their seed requirements. Key implemented features include player surface navigation (movement, boost, orientation), resource collection and respawning, inventory management, a Pal companion, rocket launch mechanics (triggered near the pole, resource cost checks, travel animation), UI elements (inventory, seed bank, terraform button, boost meter, mini-map), basic orbital mechanics for other planets, audio integration (pickups, ambient, music, positional boost), and visual enhancements (post-processing). Code is structured modularly using ES Modules, with distinct responsibilities for scene setup (`scene.js`), configuration (`config.js`), player logic (`player.js`), planet states (`planets.js`), resources (`resources.js`), rocket (`rocket.js`), utilities (`utils.js`), and the main game loop/initialization (`main.js`).
+
+## Potential Areas for Improvement (Based on Document)
+
+*   **Documentation Cleanup:** Remove or update outdated planning files (`phaseIIplan.md`, `rocket_plan.md`, `plan.md`) and unused assets (`ship.zip`, `game.js`).
+*   **Camera Logic Consolidation:** The document notes camera logic is currently spread between `main.js` and `rocket.js`. Consolidating this into a dedicated `camera.js` module could improve clarity.
+*   **Collision Detection:** Current collision is limited to simple distance checks for resource collection. Implementing more robust physics-based collision detection is listed as a future feature idea and would be needed for planned enemies or hazards.
+*   **Hardcoded Values:** The terraforming logic currently targets 'Infernia' directly in `main.js` and potentially `rocket.js`. Making the target dynamic or configurable would support multi-planet terraforming goals.
+*   **Physics Refinement:** The branch comparison notes differences in how gravity and friction are handled between branches (`main` vs `player-jump`), suggesting potential for physics model refinement or unification.
+*   **Feature Implementation:** Many planned features (Compass, Enemies, Planet Health, Asteroids, Launch Failures, Ship Upgrades, Story) represent significant areas for future development.
+*   **Game Balancing:** The "Next Steps" section explicitly focuses on tuning the game's economy and mechanics via `config.js`, indicating this is a key area needing attention for gameplay feel.
+*   **Player Jump Integration:** The "Future Feature Ideas" includes a player jump, and the branch comparison details a `player-jump` branch where this was implemented. Integrating this feature into the main branch is a potential next step. 

@@ -32,8 +32,8 @@ export const MIN_GEM_DISTANCE = 2.5;
 export const SEED_REGEN_TIME = 10; // seconds
 
 // Decorative Item Config (NEW)
-export const NUM_MOSSY_LOGS = 15;
-export const MOSSY_LOG_SCALE = 1.2;
+export const NUM_MOSSY_LOGS = 5;
+export const MOSSY_LOG_SCALE = 0.08;
 export const MIN_DECOR_DISTANCE = 4.0; // Min distance between decorative items
 
 // Fuel Constants
@@ -99,7 +99,7 @@ export const planetConfigs = [
         radius: 25,
         color: 0x00ff88,
         orbitalDistance: 700,
-        orbitalSpeed: 0.0005,
+        orbitalSpeed: 0.0009,
         initialAngle: Math.PI,
         isHome: false
     }
@@ -169,3 +169,9 @@ export const ENEMY_ACCELERATION = ACCELERATION * 0.15; // Slower acceleration (w
 export const ENEMY_MAX_VELOCITY = MAX_VELOCITY * 0.2; // Slower max speed (was 0.3)
 export const ENEMY_FRICTION = FRICTION; // Same friction for now
 // --------------------------- 
+
+// --- NEW: Purple Tree Config ---
+export const NUM_PURPLE_TREES = 10;
+export const PURPLE_TREE_SCALE = 0.7; // Increased from 0.5 (0.5 * 4)
+
+// --- END OF FILE (Remove duplicated sections below) --- 

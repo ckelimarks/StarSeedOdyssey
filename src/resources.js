@@ -23,6 +23,11 @@ let fuelModelProto = null;
 let seedModelProto = null;
 // --- NEW: Prototype for mossy log model ---
 let mossyLogModelProto = null;
+// --- NEW: Prototype for purple tree model ---
+let purpleTreeModelProto = null;
+
+// --- NEW: List to store animated decorative items ---
+let animatedDecorItems = [];
 
 // --- Audio Variables ---
 let pickupSound = null;
@@ -314,14 +319,15 @@ function generateVisualResources(count, color, resourceType, resourceArray, home
 }
 
 // NEW: Generate Decorative Items (like logs)
-function generateDecorativeItems(count, modelProto, scale, homePlanet, planetsState) {
+// Add 'animations' parameter
+function generateDecorativeItems(count, modelProto, animations, scale, homePlanet, planetsState) {
     const placedPositions = []; // Track positions of items placed in *this* call
     const maxAttemptsPerItem = 50;
     const modelUp = new THREE.Vector3(0, 1, 0); // Assume Y-up for model
     const alignmentQuaternion = new THREE.Quaternion();
     const planetRadius = homePlanet.geometry.parameters.radius;
     // Use same offset as trees for now, adjust if needed
-    const verticalOffset = 0.1; 
+    const verticalOffset = -2.8; // Lowered from 0.1 to embed items slightly
 
     for (let i = 0; i < count; i++) {
         let position;
@@ -351,6 +357,26 @@ function generateDecorativeItems(count, modelProto, scale, homePlanet, planetsSt
             const item = modelProto.clone(true);
             item.scale.set(scale, scale, scale);
 
+            // --- Animation Setup ---
+            // Use the passed 'animations' array instead of modelProto.animations
+            if (animations && animations.length > 0) { 
+                console.log(`[Animation Debug] Found ${animations.length} animations for decorative item.`); // LOG number of animations
+                const mixer = new THREE.AnimationMixer(item);
+                // Play the first animation clip by default
+                const clip = animations[0]; // Use animations[0]
+                console.log(`[Animation Debug] Playing animation clip: ${clip.name}`); // LOG clip name
+                const action = mixer.clipAction(clip); // Use clip from animations array
+                action.play();
+                // Store mixer and action for updates
+                item.userData.mixer = mixer;
+                item.userData.action = action; 
+                animatedDecorItems.push(item); // Add to list for updates
+                console.log(`Added animated item: ${item.name || 'unnamed'}`);
+            } else {
+                console.log("[Animation Debug] Item has no animations."); // UNCOMMENTED log
+            }
+            // ----------------------
+
             // Position and Align
             const surfaceNormal = position.clone().normalize();
             alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
@@ -360,6 +386,12 @@ function generateDecorativeItems(count, modelProto, scale, homePlanet, planetsSt
             item.position.copy(finalInitialPos);
             
             homePlanet.add(item); // Add directly to the planet scene graph
+            
+            // --- ADD Bounding Box Helper ---
+            // const boxHelper = new THREE.BoxHelper(item, 0xffff00); // Yellow color
+            // homePlanet.add(boxHelper); // Add helper to the same parent
+            // ---------------------------------
+
             placedPositions.push(finalInitialPos); // Store the final position for collision checking next items
         } else {
             console.warn(`Could not place a decorative item after ${maxAttemptsPerItem} attempts.`);
@@ -423,7 +455,8 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
 
             // --- Generate Decorative Logs ONLY AFTER model is loaded ---
             console.log('Generating decorative mossy logs...');
-            generateDecorativeItems(config.NUM_MOSSY_LOGS, mossyLogModelProto, config.MOSSY_LOG_SCALE, homePlanet, planetsState);
+            // Pass an empty array for animations
+            generateDecorativeItems(config.NUM_MOSSY_LOGS, mossyLogModelProto, [], config.MOSSY_LOG_SCALE, homePlanet, planetsState);
             // -----------------------------------------------------------
 
         },
@@ -473,6 +506,36 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
         }
     );
     // --- End Fuel Model Loading ---
+
+    // --- Load Purple Tree Model Asynchronously ---
+    const purpleTreeLoader = new GLTFLoader();
+    purpleTreeLoader.load(
+        'models/tech_aperture/tech_aperture.gltf', // Adjust path if needed
+        function (gltf) { // Success callback
+            console.log('Purple Tree GLTF model loaded.');
+            purpleTreeModelProto = gltf.scene;
+
+            // Ensure correct material properties and shadows
+            purpleTreeModelProto.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = false; // Disable casting shadows for this model
+                    child.receiveShadow = true;
+                }
+            });
+
+            // --- Generate Decorative Trees ONLY AFTER model is loaded ---
+            console.log('Generating decorative purple trees...');
+            // Pass gltf.animations here!
+            generateDecorativeItems(config.NUM_PURPLE_TREES, purpleTreeModelProto, gltf.animations, config.PURPLE_TREE_SCALE, homePlanet, planetsState);
+            // -----------------------------------------------------------
+
+        },
+        undefined, // onProgress callback (optional)
+        function (error) { // Error callback
+            console.error('An error happened loading the purple tree GLTF:', error);
+        }
+    );
+    // --- End Purple Tree Model Loading ---
 
     console.log("Resources INIT: Finished initial setup (model loading is async).");
 }
@@ -880,6 +943,14 @@ function updateResources(scene, playerSphere, homePlanet, audioListener, deltaTi
     // --- Update Fuel Particles ---
     updateFuelParticles(deltaTime);
     // ---------------------------
+
+    // --- NEW: Update Animated Decorative Item Mixers ---
+    for (const item of animatedDecorItems) {
+        if (item.userData.mixer) {
+            item.userData.mixer.update(deltaTime);
+        }
+    }
+    // --------------------------------------------------
 
     // Update animations for remaining SEEDS only - REMOVING THIS
     // seedGems.forEach(itemGroup => { 

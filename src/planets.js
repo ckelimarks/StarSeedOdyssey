@@ -119,16 +119,27 @@ export function initPlanets(scene) {
     let homePlanet = null;
 
     config.planetConfigs.forEach(pConfig => {
-        const planetMesh = createSphere(pConfig.radius, pConfig.color, new THREE.Vector3(), pConfig.name, pConfig.isHome);
-        scene.add(planetMesh);
+        let planetObject; // Use generic name
+
+        if (pConfig.name === 'Verdant Minor') {
+            // For Verdant Minor, create an empty group - model loaded later
+            console.log(`  Planet ${pConfig.name} will be loaded later. Creating group.`);
+            planetObject = new THREE.Object3D();
+            planetObject.name = pConfig.name; // Name the group
+        } else {
+            // For other planets, create the sphere mesh as before
+            planetObject = createSphere(pConfig.radius, pConfig.color, new THREE.Vector3(), pConfig.name, pConfig.isHome);
+        }
+        
+        scene.add(planetObject); // Add the group or mesh to the scene
         
         // Calculate initial position based on orbital parameters
         const initialX = pConfig.orbitalDistance * Math.cos(pConfig.initialAngle);
         const initialZ = pConfig.orbitalDistance * Math.sin(pConfig.initialAngle);
-        planetMesh.position.set(initialX, 0, initialZ);
+        planetObject.position.set(initialX, 0, initialZ); // Position the group or mesh
         
         planetsState[pConfig.name] = {
-            mesh: planetMesh,
+            mesh: planetObject, // Store the group or mesh
             config: pConfig,
             originalColor: new THREE.Color(pConfig.color), // Store original color
             currentAngle: pConfig.initialAngle,
@@ -136,10 +147,10 @@ export function initPlanets(scene) {
             seedsRequired: config.SEEDS_REQUIRED_TERRAFORM // Store requirement
         };
 
-        console.log(`  Planet ${pConfig.name} initialized at angle ${pConfig.initialAngle.toFixed(2)}.`);
+        console.log(`  Planet ${pConfig.name} object initialized at angle ${pConfig.initialAngle.toFixed(2)}.`);
 
         if (pConfig.isHome) {
-            homePlanet = planetMesh;
+            homePlanet = planetObject; // Store the mesh reference
             console.log(`  -> Identified ${pConfig.name} as the home planet.`);
         }
     });

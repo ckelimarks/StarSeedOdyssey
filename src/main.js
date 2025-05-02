@@ -4,6 +4,7 @@ import Stats from 'https://esm.sh/three@0.128.0/examples/jsm/libs/stats.module.j
 import { EffectComposer } from 'https://esm.sh/three@0.128.0/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'https://esm.sh/three@0.128.0/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'https://esm.sh/three@0.128.0/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader.js'; // <<< ADDED IMPORT
 // -----------------------------
 
 // Import configurations and constants
@@ -81,6 +82,7 @@ let isCameraFocusingPlanet = false; // Flag to override default camera logic
 let isCameraInTerraformPosition = false; // NEW: Flag to track camera arrival
 
 let enemyState = null; // <<< ADDED Enemy state variable
+let isDebugCameraActive = false; // NEW: Flag for top-down debug camera view
 
 // UI Element References
 let seedBankElement = null;
@@ -90,6 +92,7 @@ let missionStatusElement = null; // NEW: Reference for mission status message
 let debugFillButton = null; // NEW: Reference for debug button
 let debugInstantTerraformButton = null; // NEW: Reference for instant terraform button
 let debugEnableTerraformButton = null; // NEW: Reference for enable terraform button debug
+let debugFocusVerdantButton = null; // NEW: Reference for focus button
 let boostMeterFillElement = null; // NEW
 let boostStatusElement = null; // NEW
 let enemyStatusElement = null; // <<< ADDED
@@ -330,6 +333,18 @@ function handleDebugEnableTerraformButton() {
     updateTerraformButton(true, targetPlanetName); 
 }
 
+function handleFocusToggleClick() {
+    isDebugCameraActive = !isDebugCameraActive; // Toggle the NEW flag
+
+    if (isDebugCameraActive) { // Check NEW flag
+        if(debugFocusVerdantButton) debugFocusVerdantButton.textContent = 'Player View'; // New text
+        console.log("Debug Focus: Switched to Solar System View"); // Update log
+    } else {
+        if(debugFocusVerdantButton) debugFocusVerdantButton.textContent = 'System View'; // New text
+        console.log("Debug Focus: Switched to Player Camera"); // Update log
+    }
+}
+
 // --- Initialize the application ---
 async function init() {
     console.log("Main INIT: Starting initialization...");
@@ -426,6 +441,66 @@ async function init() {
         // Store home planet world position (assuming it doesn't move)
         homePlanet.getWorldPosition(_mapHomePlanetWorldPos);
         console.log("Main INIT: Planets initialized.");
+
+        // --- Load Purple Planet Model for Verdant Minor ---
+        const verdantPlanetGroup = planetsState['Verdant Minor']?.mesh;
+        if (verdantPlanetGroup && verdantPlanetGroup instanceof THREE.Object3D) { // Check it's the Object3D group
+            const purplePlanetLoader = new GLTFLoader();
+            purplePlanetLoader.load(
+                'models/purple_planet/scene.gltf', // Corrected filename
+                (gltf) => {
+                    console.log("Purple Planet model loaded for Verdant Minor.");
+                    const loadedModel = gltf.scene;
+                    const targetRadius = planetsState['Verdant Minor']?.config?.radius || 25; // Get target radius from config
+                    
+                    // Scale and Position
+                    // Adjust scale to roughly match target radius (needs experimentation based on model size)
+                    const scale = 30.0; // Increased from 15.0 (doubled)
+                    loadedModel.scale.set(scale, scale, scale);
+                    loadedModel.position.set(0, 0, 0); // Position at the center of the group
+
+                    // Shadows
+                    loadedModel.traverse((child) => {
+                        if (child.isMesh) {
+                            child.castShadow = true; // Re-enable cast shadow
+                            child.receiveShadow = true;
+                        }
+                    });
+
+                    // --- Animation Setup --- 
+                    if (gltf.animations && gltf.animations.length > 0) {
+                        console.log(`[Animation Debug] Found ${gltf.animations.length} animations for Purple Planet model.`);
+                        const mixer = new THREE.AnimationMixer(loadedModel); // Mixer targets the loaded model
+                        const clip = gltf.animations[0]; 
+                        console.log(`[Animation Debug] Playing animation clip: ${clip.name}`);
+                        const action = mixer.clipAction(clip);
+                        action.play();
+                        // Store mixer on the GROUP for later updates
+                        verdantPlanetGroup.userData.mixer = mixer; 
+                        console.log("Stored animation mixer on Verdant Minor group.");
+                    } else {
+                        console.log("[Animation Debug] Purple Planet model has no animations.");
+                    }
+                    // ----------------------
+
+                    // Attach model to the group
+                    verdantPlanetGroup.add(loadedModel); 
+                    console.log("Attached Purple Planet model to Verdant Minor group.");
+
+                    // --- REMOVE Bounding Box Helper ---
+                    // const boxHelper = new THREE.BoxHelper(loadedModel, 0xffff00); // Yellow color
+                    // verdantPlanetGroup.add(boxHelper); // Add helper to the same parent as the model
+                    // ---------------------------------
+                },
+                undefined, // Progress callback
+                (error) => {
+                    console.error('Error loading Purple Planet model:', error);
+                }
+            );
+        } else {
+            console.warn("Could not find Verdant Minor planet mesh to attach purple planet model.");
+        }
+        // --- End Purple Planet Model Loading ---
 
         // --- Calculate Launch Pad Position (LOCAL coordinates) ---
         const homePlanetRadius = homePlanet.geometry.parameters.radius;
@@ -674,6 +749,15 @@ async function init() {
         debugEnableTerraformButton.style.fontFamily = 'Helvetica, Arial, sans-serif';
         debugEnableTerraformButton.addEventListener('click', handleDebugEnableTerraformButton);
         document.body.appendChild(debugEnableTerraformButton);
+        
+        debugFocusVerdantButton = document.createElement('button');
+        debugFocusVerdantButton.textContent = 'System View'; // Initial text
+        debugFocusVerdantButton.style.position = 'absolute';
+        debugFocusVerdantButton.style.bottom = '130px'; // Stacked above fill resources
+        debugFocusVerdantButton.style.right = '10px';
+        debugFocusVerdantButton.style.fontFamily = 'Helvetica, Arial, sans-serif';
+        debugFocusVerdantButton.addEventListener('click', handleFocusToggleClick);
+        document.body.appendChild(debugFocusVerdantButton);
         // -----------------------------------------------------
 
         // --- NEW: Create Enemy Status UI ---
@@ -970,6 +1054,13 @@ function animate() {
     }
     // --- END NEW Fuel Consumption ---
 
+    // --- Update Purple Planet Animation (if exists) ---
+    const verdantPlanetGroup = planetsState['Verdant Minor']?.mesh;
+    if (verdantPlanetGroup?.userData?.mixer) {
+        verdantPlanetGroup.userData.mixer.update(deltaTime);
+    }
+    // --------------------------------------------------
+
     // --- Handle Terraforming Color Lerp ---
     for (const planetName in isTerraforming) {
         if (isTerraforming[planetName]) {
@@ -1180,7 +1271,7 @@ function animate() {
     }
 
     // --- Update Camera ---
-    if (isCameraFocusingPlanet && cameraFocusTarget) {
+    if (isCameraFocusingPlanet && cameraFocusTarget) { // Terraform focus takes priority
         // --- Direct Camera Control for Planet Focus ---
         cameraFocusTarget.getWorldPosition(_planetFocusWorldPos); 
         _desiredCamPos.addVectors(_planetFocusWorldPos, terraformViewOffset); 
@@ -1223,10 +1314,29 @@ function animate() {
              }
         }
 
+    } else if (isDebugCameraActive) { // NEW: Check for top-down debug view
+        const systemCenter = _vec3.set(0, 0, 0); // Use temp vector for center
+        const desiredPosition = _desiredCamPos.set(0, 1500, 0); // Y-up, far above
+
+        // Smoothly move camera to desired position
+        camera.position.lerp(desiredPosition, config.CAMERA_SMOOTH_FACTOR * 0.5); // Slower lerp for system view
+        
+        // Aim camera down at the center
+        camera.lookAt(systemCenter);
+        
+        // Explicitly set UP direction to avoid issues when looking straight down
+        // Use negative Z as UP for a typical top-down view (X right, Z up)
+        camera.up.set(0, 0, -1); 
+
     } else if (isRocketActive()) { // Default rocket following
         updateCamera(camera, rocketMesh, homePlanet); 
     } else { // Default player following
-        updateCamera(camera, window.playerState.mesh, homePlanet);
+        // Make sure playerState.mesh exists before calling updateCamera
+        if (window.playerState?.mesh) {
+            updateCamera(camera, window.playerState.mesh, homePlanet);
+        } else {
+            // Optional: Handle camera position if player isn't ready (e.g., fixed view)
+        }
     }
 
     // --- Update UI --- (Moved together)
