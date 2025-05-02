@@ -25,6 +25,9 @@ let seedModelProto = null;
 let mossyLogModelProto = null;
 // --- NEW: Prototype for purple tree model ---
 let purpleTreeModelProto = null;
+// --- NEW: Prototype for Tech Aperture model ---
+let techApertureModelProto = null;
+let techApertureModelAnimations = []; // Initialize as empty array
 
 // --- NEW: List to store animated decorative items ---
 let animatedDecorItems = [];
@@ -507,35 +510,39 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
     );
     // --- End Fuel Model Loading ---
 
-    // --- Load Purple Tree Model Asynchronously ---
-    const purpleTreeLoader = new GLTFLoader();
-    purpleTreeLoader.load(
-        'models/tech_aperture/tech_aperture.gltf', // Adjust path if needed
+    // --- Load Tech Aperture (Purple Tree) Model Asynchronously --- // Keep loading, comment generation
+    const techApertureLoader = new GLTFLoader(); // Renamed loader variable
+    techApertureLoader.load(
+        'models/tech_aperture/tech_aperture.gltf', // Path remains the same
         function (gltf) { // Success callback
-            console.log('Purple Tree GLTF model loaded.');
-            purpleTreeModelProto = gltf.scene;
+            console.log('Tech Aperture GLTF model loaded.'); // Updated log
+            // Store the prototype for later use
+            techApertureModelProto = gltf.scene; // <<< Store in a new variable
 
             // Ensure correct material properties and shadows
-            purpleTreeModelProto.traverse((child) => {
+            techApertureModelProto.traverse((child) => {
                 if (child.isMesh) {
                     child.castShadow = false; // Disable casting shadows for this model
                     child.receiveShadow = true;
                 }
             });
 
-            // --- Generate Decorative Trees ONLY AFTER model is loaded ---
-            console.log('Generating decorative purple trees...');
+            // Store animations if any (needed for later spawning)
+            techApertureModelAnimations = gltf.animations; // <<< Store animations
+
+            // --- Generate Decorative Trees ONLY AFTER model is loaded --- // <<< COMMENT OUT
+            // console.log('Generating decorative purple trees...');
             // Pass gltf.animations here!
-            generateDecorativeItems(config.NUM_PURPLE_TREES, purpleTreeModelProto, gltf.animations, config.PURPLE_TREE_SCALE, homePlanet, planetsState);
+            // generateDecorativeItems(config.NUM_PURPLE_TREES, purpleTreeModelProto, gltf.animations, config.PURPLE_TREE_SCALE, homePlanet, planetsState);
             // -----------------------------------------------------------
 
         },
         undefined, // onProgress callback (optional)
         function (error) { // Error callback
-            console.error('An error happened loading the purple tree GLTF:', error);
+            console.error('An error happened loading the tech aperture GLTF:', error); // Updated log
         }
     );
-    // --- End Purple Tree Model Loading ---
+    // --- End Tech Aperture (Purple Tree) Model Loading --- // Updated comment
 
     console.log("Resources INIT: Finished initial setup (model loading is async).");
 }
@@ -1268,7 +1275,7 @@ function loadAudio(listener) {
         audioListenerRef = listener; 
         const loader = new THREE.AudioLoader();
         let soundsLoaded = 0;
-        let totalSoundsToLoad = 21; // <<< UPDATED AGAIN
+        let totalSoundsToLoad = 22; // <<< Increment count
         const loadedSounds = {}; 
 
         const checkAllLoaded = () => {
@@ -1650,6 +1657,25 @@ function loadAudio(listener) {
         );
         // -----------------------------------
 
+        // --- Load Node Deactivation Sound (NEW) ---
+        loader.load('sfx/deactivatenodesound.wav', 
+            (buffer) => {
+                const deactivateNodeSound = new THREE.PositionalAudio(audioListenerRef); // <<< CHANGE to PositionalAudio
+                deactivateNodeSound.setBuffer(buffer);
+                deactivateNodeSound.setLoop(false);
+                deactivateNodeSound.setRefDistance(15); // <<< ADD Reference distance (adjust as needed)
+                deactivateNodeSound.setRolloffFactor(1.0); // <<< ADD Rolloff factor (adjust as needed)
+                // Volume is now positional, but we can set a base multiplier if needed (default is 1)
+                // deactivateNodeSound.setVolume(0.8); 
+                loadedSounds.deactivateNodeSound = deactivateNodeSound; // Store reference
+                console.log("Node deactivation sound loaded (Positional)."); // <<< Update log
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/deactivatenodesound.wav', err)
+        );
+        // --- END Load Node Deactivation Sound ---
+
     }); // End of Promise wrapper
 }
 
@@ -1918,7 +1944,10 @@ export {
     enemyRoarSound,
     alarmSirenSound,
     dangerThemeSound, // <<< NEW EXPORT
-    playAppropriateMusic // <<< NEW EXPORT
-    // -----------------------
+    playAppropriateMusic, // <<< NEW EXPORT
+    // --- Add model/animation exports ---
+    techApertureModelProto, // <<< NEW EXPORT
+    techApertureModelAnimations // <<< NEW EXPORT
+    // ---------------------------------
     // Add any other functions from this module that need exporting
 }; 

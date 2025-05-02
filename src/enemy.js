@@ -1,8 +1,14 @@
 import * as THREE from 'https://esm.sh/three@0.128.0';
 import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
 import * as config from './config.js'; // Import config for potential future use
+import {
+    PLAYER_MODEL_SCALE, PLAYER_RADIUS, // Existing potentially used
+    ENEMY_ACCELERATION, ENEMY_FRICTION, ENEMY_MAX_VELOCITY, // Existing potentially used
+    NODES_REQUIRED, NODE_ACTIVATION_DURATION, NODE_INTERACTION_DISTANCE, MIN_NODE_DISTANCE // Node constants
+} from './config.js';
 import { getRandomPositionOnPlanet } from './utils.js'; // <<< NEW: Import utility
 import { playAppropriateMusic } from './resources.js'; // <<< IMPORT MUSIC FUNCTION
+import { techApertureModelProto, techApertureModelAnimations } from './resources.js'; // <<< Import Deactivation Node Model/Animations
 
 // --- Enemy States Enum ---
 const EnemyAIState = {
@@ -27,13 +33,14 @@ const HUNT_PREDICTION_ERROR_DISTANCE = 2.0; // <<< NEW: How much inaccuracy when
 const SPOTLIGHT_TRACKING_SPEED = 6.0; // <<< INCREASED AGAIN
 const DETECTION_SOUND_COOLDOWN = 3.0; // <<< NEW: Cooldown for roar/siren sounds
 const PATROL_DURATION = 45.0; // <<< ADJUSTED for testing
-const SLEEP_DURATION = 60.0;  // <<< CORRECTED VALUE & ADDED SEMICOLON
+const SLEEP_DURATION = 10.0;  // <<< CORRECTED VALUE & ADDED SEMICOLON
 const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // <<< NEW: Added for music fade logic
 // ------------------------
 
 // Module-level variables
 const loader = new GLTFLoader();
 let homePlanetRef = null;
+let planetsStateRef = null; // <<< ADD module-level variable
 
 // --- Enemy State ---
 let enemyState = {
@@ -72,6 +79,9 @@ let enemyState = {
     patrolTimer: 0, // <<< NEW
     sleepTimer: 0, // <<< NEW: Timer for sleep duration
     originalSpotlightIntensity: 1.0, // <<< STORE INTENSITY
+    // --- Deactivation Node State ---
+    deactivationNodes: [], // Array to store { mesh, mixer, isActivated, activationProgress }
+    activationTimers: {}, // Map: nodeInstanceId -> timer
 };
 // ------------------
 
@@ -79,6 +89,7 @@ let enemyState = {
 const _enemyWorldPos = new THREE.Vector3();
 const _playerWorldPos = new THREE.Vector3(); // NEW: Need player position
 const _planetWorldPos = new THREE.Vector3(); // NEW: Need planet position
+const _targetWorldPos = new THREE.Vector3(); // <<< ADDED DECLARATION
 const _planetCenter = new THREE.Vector3(); // Assuming planet is at world origin
 const _enemyUp = new THREE.Vector3();
 const _modelUp = new THREE.Vector3(0, 1, 0); // Assume Y-up for model
@@ -89,6 +100,7 @@ const _tempMatrix = new THREE.Matrix4(); // NEW
 const _tempQuat = new THREE.Quaternion(); // NEW
 const _origin = new THREE.Vector3(0, 0, 0); // NEW
 const _vector3 = new THREE.Vector3(); // NEW: General purpose temp
+const _vector3_2 = new THREE.Vector3(); // NEW: General purpose temp
 
 // --- NEW: Vision Check Vectors ---
 const _spotLightWorldPos = new THREE.Vector3();
@@ -179,14 +191,21 @@ function isPlayerInSpotlight(playerMesh) {
  * Initializes the Enemy bot.
  * @param {THREE.Scene} scene - The main scene.
  * @param {THREE.Object3D} homePlanet - The object to attach the enemy to.
+ * @param {object} planetsData - The planetsState object from main.js <<< ADD parameter
+ * @returns {object} The enemy state object.
  */
-export function initEnemy(scene, homePlanet) {
+export function initEnemy(scene, homePlanet, planetsData) { // <<< ADD parameter
     console.log("Enemy INIT: Initializing...");
     if (!homePlanet || !homePlanet.geometry || !homePlanet.geometry.parameters) {
         console.error("Enemy INIT Error: Valid homePlanet object is required.");
         return null; // Return null or handle error appropriately
     }
+    if (!planetsData) { // <<< ADD check
+        console.error("Enemy INIT Error: planetsData object is required.");
+        return null;
+    }
     homePlanetRef = homePlanet; // Store reference
+    planetsStateRef = planetsData; // <<< Store reference
 
     loader.load(
         'models/spider_bot/scene.gltf',
@@ -389,6 +408,16 @@ export function initEnemy(scene, homePlanet) {
             }
             // -----------------------------
 
+            // --- Attach Deactivation Sound (NEW) ---
+            const deactivateSound = window.loadedSounds?.deactivateNodeSound;
+            if (deactivateSound) {
+                model.add(deactivateSound); // Attach sound directly to the enemy model
+                console.log("Enemy INIT: Attached positional node deactivation sound.");
+            } else {
+                console.warn("Enemy INIT: Node deactivation sound not found in loadedSounds.");
+            }
+            // ----------------------------------
+
             // --- NEW: Set initial visibility based on state ---
             if (enemyState.currentState === EnemyAIState.SLEEPING) {
                 // model.visible = false; // <<< OLD: Hide parent
@@ -510,6 +539,10 @@ export function updateEnemy(deltaTime, playerMesh) {
                 });
                 // -----------------------------------
                 enemyState.isFadingToAwakeMusic = false; // Reset other flag on state entry
+                
+                // <<< Despawn Nodes on Sleep >>>
+                despawnDeactivationNodes();
+                
                 break; 
             }
             // --------------------------
@@ -795,10 +828,20 @@ export function updateEnemy(deltaTime, playerMesh) {
 
         // --- NEW SLEEPING STATE --- 
         case EnemyAIState.SLEEPING:
-            const remainingSleepTime = Math.max(0, SLEEP_DURATION - enemyState.sleepTimer);
-            const sleepMinutes = Math.floor(remainingSleepTime / 60);
-            const sleepSeconds = Math.floor(remainingSleepTime % 60);
-            enemyState.statusText = `Sleeping (${sleepMinutes}:${sleepSeconds.toString().padStart(2, '0')} left)`;
+            let remainingSleepTime = 0; // <<< Declare variable outside the if/else
+            
+            // <<< Status Text Logic (uses previous frame's timer value) >>>
+            if (enemyState.sleepTimer <= 1e-6) { 
+                enemyState.statusText = "Deactivated"; 
+            } else {
+                // Calculate remaining time based on timer BEFORE incrementing for this frame
+                const displaySleepTime = Math.max(0, SLEEP_DURATION - enemyState.sleepTimer);
+                const sleepMinutes = Math.floor(displaySleepTime / 60);
+                const sleepSeconds = Math.floor(displaySleepTime % 60);
+                enemyState.statusText = `Sleeping (${sleepMinutes}:${sleepSeconds.toString().padStart(2, '0')} left)`;
+            }
+            // <<< END Status Text Logic >>>
+            
             enemyVelocity.set(0, 0, 0); // Ensure stopped
             targetWorldPos = null;
 
@@ -819,8 +862,10 @@ export function updateEnemy(deltaTime, playerMesh) {
             }
 
             // --- Wake Timer / Pre-Wake Fade Check --- <<< MODIFIED
-            enemyState.sleepTimer += deltaTime;
-            // Start fade 4 seconds before waking
+            enemyState.sleepTimer += deltaTime; // <<< Increment timer FIRST
+            remainingSleepTime = Math.max(0, SLEEP_DURATION - enemyState.sleepTimer); // <<< Calculate AFTER timer increment
+            
+            // Start fade 4 seconds before waking (uses the updated remainingTime)
             if (!enemyState.isFadingToAwakeMusic && remainingSleepTime <= MUSIC_ANTICIPATION_FADE_DURATION) {
                 console.log(`[Music] Approaching wake time, starting fade to danger theme.`);
                 playAppropriateMusic(true); // Fade to danger (awake) music
@@ -856,6 +901,10 @@ export function updateEnemy(deltaTime, playerMesh) {
                 });
                 // -----------------------------------
                 enemyState.isFadingToSleepMusic = false; // Reset flag
+                
+                // <<< Spawn Nodes on Wake Up >>>
+                spawnDeactivationNodes();
+                
                 break;
             }
             break;
@@ -1024,10 +1073,303 @@ export function updateEnemy(deltaTime, playerMesh) {
     }
     // -------------------------------------
 
+    // --- Update Node Logic (If Nodes Exist) --- // <<< NEW SECTION
+    if (enemyState.deactivationNodes.length > 0) {
+        let allNodesActivated = true; // Assume true initially
+
+        enemyState.deactivationNodes.forEach(nodeData => {
+            if (!nodeData.mesh || nodeData.isActivated) {
+                if (!nodeData.isActivated) allNodesActivated = false; // Still mark false if node mesh is missing but required
+                return; // Skip processed or broken nodes
+            }
+
+            allNodesActivated = false; // Found an inactive node
+
+            // Update animation
+            if (nodeData.mixer) {
+                // console.log(`[Node Anim Debug] Updating mixer for node ${nodeData.id}`); // <<< REMOVE verbose log
+                nodeData.mixer.update(deltaTime);
+            }
+
+            // Check player proximity
+            if (playerMesh) {
+                playerMesh.getWorldPosition(_playerWorldPos);
+                nodeData.mesh.getWorldPosition(_targetWorldPos);
+                const distanceSq = _playerWorldPos.distanceToSquared(_targetWorldPos);
+
+                if (distanceSq < NODE_INTERACTION_DISTANCE * NODE_INTERACTION_DISTANCE) {
+                    // Player is near this inactive node
+                    enemyState.activationTimers[nodeData.id] += deltaTime;
+                    nodeData.activationProgress = Math.min(1.0, enemyState.activationTimers[nodeData.id] / NODE_ACTIVATION_DURATION);
+
+                    // TODO: Add visual feedback for activation progress (e.g., lerp color/emissive)
+                    /* // <<< REMOVE Emissive Lerp During Activation >>>
+                    // Example: Lerp emissive intensity
+                    nodeData.mesh.traverse(child => {
+                         if(child.isMesh && child.material.emissive) {
+                              // Assuming base emissive is low or black
+                              const targetIntensity = 5.0; // Activated intensity
+                              child.material.emissiveIntensity = targetIntensity * nodeData.activationProgress;
+                         }
+                    });
+                    */ // <<< END REMOVE Emissive Lerp >>>
+
+                    if (enemyState.activationTimers[nodeData.id] >= NODE_ACTIVATION_DURATION) {
+                        console.log(`[Nodes] Node ${nodeData.id} Activated!`);
+                        nodeData.isActivated = true;
+                        enemyState.activationTimers[nodeData.id] = NODE_ACTIVATION_DURATION; // Cap timer
+                        nodeData.activationProgress = 1.0;
+                        
+                        // --- Set final activated visual state (Green Emissive on CLONED Material) ---
+                         nodeData.mesh.traverse(child => {
+                              if(child.isMesh && child.material?.emissive) { // Check material exists
+                                   const originalMaterial = child.material;
+                                   const newMaterial = originalMaterial.clone(); // <<< CLONE Material
+                                   newMaterial.emissive.setHex(0x00ff00); // Set color on new material
+                                   newMaterial.emissiveIntensity = 5.0;   // Set intensity on new material
+                                   child.material = newMaterial; // <<< Assign NEW Material
+                              }
+                         });
+                        // ---------------------------------------------------------------------------
+                        // TODO: Play activation sound
+                        /* // <<< REMOVE Sound Playback Here >>>
+                        if (window.loadedSounds?.deactivateNodeSound) {
+                            if(window.loadedSounds.deactivateNodeSound.isPlaying) {
+                                window.loadedSounds.deactivateNodeSound.stop(); // Stop if somehow playing
+                            }
+                            window.loadedSounds.deactivateNodeSound.play();
+                        } else {
+                            console.warn("[SOUND] Deactivate node sound not loaded.");
+                        }
+                        */ // <<< END REMOVE Sound Playback >>>
+                    }
+                } else {
+                    // Player moved away, reset timer and visual progress
+                    if (enemyState.activationTimers[nodeData.id] > 0) {
+                         console.log(`[Nodes] Player moved away from node ${nodeData.id}, resetting progress.`);
+                         enemyState.activationTimers[nodeData.id] = 0;
+                         nodeData.activationProgress = 0;
+                          // TODO: Reset visual feedback
+                          /* // <<< REMOVE Emissive Reset >>>
+                           nodeData.mesh.traverse(child => {
+                              if(child.isMesh && child.material.emissive) {
+                                   // Assuming original emissive is black or low
+                                   child.material.emissive.setHex(0x000000); 
+                                   child.material.emissiveIntensity = 0;
+                              }
+                         });
+                         */ // <<< END REMOVE Emissive Reset >>>
+                    }
+                }
+            } else {
+                 // No player mesh, ensure timer resets if it was running
+                 if (enemyState.activationTimers[nodeData.id] > 0) {
+                     enemyState.activationTimers[nodeData.id] = 0;
+                     nodeData.activationProgress = 0;
+                     // TODO: Reset visual feedback
+                      nodeData.mesh.traverse(child => {
+                           if(child.isMesh && child.material.emissive) {
+                                child.material.emissive.setHex(0x000000); 
+                                child.material.emissiveIntensity = 0;
+                           }
+                      });
+                 }
+            }
+        });
+
+        // Check if all nodes were activated this frame
+        if (allNodesActivated) {
+             console.log("[Nodes] All nodes activated! Forcing enemy to sleep.");
+             // <<< PLAY Sound Here >>>
+             const deactivateSound = window.loadedSounds?.deactivateNodeSound;
+             if (deactivateSound) {
+                if(deactivateSound.isPlaying) deactivateSound.stop(); // Stop if playing
+                deactivateSound.play(); // Play from enemy position
+                console.log("[SOUND] Played node deactivation sound from enemy position.");
+             } else {
+                console.warn("[SOUND] Deactivate node sound not loaded for final playback.");
+             }
+             // <<< END PLAY Sound >>>
+             
+             enemyState.currentState = EnemyAIState.SLEEPING;
+             enemyState.patrolTimer = 0; // Reset timers
+             enemyState.sleepTimer = 0;
+             enemyState.statusText = "Deactivated"; 
+             playAppropriateMusic(false); // Start fade to normal music immediately
+             despawnDeactivationNodes();
+             // Stop movement/scan sounds, pause animation, dim light etc.
+             if (movementSound && enemyState.isMovingSoundPlaying) movementSound.stop();
+             if (scanningSound && enemyState.isScanningSoundPlaying) scanningSound.stop();
+             enemyState.isMovingSoundPlaying = false;
+             enemyState.isScanningSoundPlaying = false;
+             if (enemyState.spotLight) enemyState.spotLight.intensity = 0.1;
+             if (enemyState.actions.walk) enemyState.actions.walk.timeScale = 0;
+             enemyMesh.traverse((child) => {
+                  if (child.isMesh) child.visible = false;
+             });
+             // Reset music fade flags (although fade just started)
+             enemyState.isFadingToSleepMusic = true; // Mark as fading to sleep
+             enemyState.isFadingToAwakeMusic = false;
+        }
+    }
+    // --- END NEW NODE LOGIC ---
+
+    // --- Clamp Position & Update Orientation ---
+    // ... existing code ...
 } 
 
 function getFibonacciPatrolPoint(planetRadius) {
     // Implement Fibonacci lattice patrol logic here
     // This is a placeholder and should be replaced with the actual implementation
     return null; // Placeholder return, actual implementation needed
+} 
+
+// <<< NEW FUNCTION: Spawn Deactivation Nodes >>>
+function spawnDeactivationNodes() {
+    if (!homePlanetRef || !techApertureModelProto) {
+        console.error("Cannot spawn nodes: Missing home planet reference or node model prototype.");
+        return;
+    }
+    console.log(`[Nodes] Spawning ${NODES_REQUIRED} deactivation nodes (forced random positions)...`);
+    despawnDeactivationNodes(); // Clear any existing nodes first
+
+    const planetRadius = homePlanetRef.geometry.parameters.radius;
+    // console.log(`[Enemy Radius Check] spawnDeactivationNodes using geometry radius: ${planetRadius}`); // <<< REMOVE Log radius
+    const nodeVerticalOffset = -0.4; // <<< Bring closer to surface (less negative)
+    const nodeScale = config.PURPLE_TREE_SCALE; // <<< Restore original scale
+
+    const placedNodePositions = []; // <<< Store positions of nodes placed in THIS spawn event
+    const maxPlacementAttempts = 50; // <<< Limit attempts to avoid infinite loops
+
+    for (let i = 0; i < NODES_REQUIRED; i++) {
+        let randomLocalSurfacePos;
+        let placementAttempts = 0;
+        let positionValid = false;
+
+        // <<< Add Retry Loop for Position Generation >>>
+        do {
+            // Get random LOCAL position ON the surface
+            randomLocalSurfacePos = getRandomPositionOnPlanet(homePlanetRef, planetsStateRef); 
+            placementAttempts++;
+
+            // Check distance against previously placed nodes in this batch
+            let tooClose = false;
+            for (const placedPos of placedNodePositions) {
+                if (randomLocalSurfacePos.distanceToSquared(placedPos) < MIN_NODE_DISTANCE * MIN_NODE_DISTANCE) {
+                    tooClose = true;
+                    break; // Too close to this one, no need to check others
+                }
+            }
+
+            if (!tooClose) {
+                positionValid = true; // Found a valid spot
+            }
+            
+        } while (!positionValid && placementAttempts < maxPlacementAttempts);
+        // <<< End Retry Loop >>>
+
+        if (!positionValid) {
+            console.warn(`[Nodes] Could not find a valid position for node ${i + 1} after ${maxPlacementAttempts} attempts. Spawning anyway, might overlap.`);
+            // If it failed, we still use the last generated randomLocalSurfacePos
+        }
+
+        // <<< Log the received position >>>
+        console.log(`[Nodes]   Node ${i+1} randomLocalSurfacePos (Attempt ${placementAttempts}):`, JSON.stringify(randomLocalSurfacePos));
+
+        console.log(`[Nodes] Spawning node ${i + 1} at local position (approx):`, randomLocalSurfacePos); 
+        const nodeMesh = techApertureModelProto.clone(true);
+        nodeMesh.scale.set(nodeScale, nodeScale, nodeScale);
+
+        // --- Animation Setup ---
+        let nodeMixer = null;
+        if (techApertureModelAnimations && techApertureModelAnimations.length > 0) {
+            nodeMixer = new THREE.AnimationMixer(nodeMesh);
+            const clip = techApertureModelAnimations[0]; 
+            // console.log(`[Node Anim Debug] Node ${i+1}: Playing clip '${clip.name}' (Duration: ${clip.duration.toFixed(2)}s)`); // <<< REMOVE Log clip info
+            const action = nodeMixer.clipAction(clip);
+            action.setLoop(THREE.LoopPingPong); // <<< SET Loop Mode to PingPong
+            action.play();
+        } else {
+            console.warn("[Nodes] Tech Aperture model has no animations.");
+        }
+        // ----------------------
+
+        // --- Position and Align using LOCAL Coordinates ---
+        // 1. Calculate LOCAL surface normal (direction from planet center to the local surface point)
+        const localSurfaceNormal = _vector3.copy(randomLocalSurfacePos).normalize(); 
+        
+        // 2. Calculate final LOCAL position DIRECTLY
+        const finalRadius = planetRadius + nodeVerticalOffset; // e.g., 60 + (-2.8) = 57.2
+        const finalLocalPos = _vector3_2.copy(localSurfaceNormal).multiplyScalar(finalRadius); // Direction * final radius
+
+        // 3. Set Alignment based on LOCAL surface normal 
+        // (Quaternion is orientation, doesn't matter if normal is local or world if model & parent are aligned)
+        _alignmentQuaternion.setFromUnitVectors(_modelUp, localSurfaceNormal);
+        nodeMesh.quaternion.copy(_alignmentQuaternion);
+        
+        // 4. Set mesh position directly to the calculated LOCAL position
+        nodeMesh.position.copy(finalLocalPos); 
+        
+        placedNodePositions.push(finalLocalPos.clone()); // <<< Add successful position to list for next check
+
+        // 5. Add mesh to the parent (planet)
+        homePlanetRef.add(nodeMesh); 
+        // --------------------------------------------------
+        
+        // <<< ADD BoxHelper for the FIRST node >>>
+        if (i === 0) {
+            const boxHelper = new THREE.BoxHelper(nodeMesh, 0xffff00); // Yellow
+            homePlanetRef.add(boxHelper); // Add helper to the same parent
+            nodeMesh.userData.boxHelper = boxHelper; 
+            console.log("[Nodes] Added BoxHelper for first node.");
+        }
+        // <<< END BoxHelper >>>
+
+        // Add node data to state
+        enemyState.deactivationNodes.push({
+            id: nodeMesh.uuid, // Use UUID as a unique identifier
+            mesh: nodeMesh,
+            mixer: nodeMixer,
+            isActivated: false,
+            activationProgress: 0 // For potential visual feedback
+        });
+        enemyState.activationTimers[nodeMesh.uuid] = 0; // Initialize timer
+    }
+    console.log(`[Nodes] Finished spawning ${enemyState.deactivationNodes.length} / ${NODES_REQUIRED} nodes.`);
+}
+
+// <<< NEW FUNCTION: Despawn Deactivation Nodes >>>
+function despawnDeactivationNodes() {
+    if (enemyState.deactivationNodes.length === 0) return; // Nothing to despawn
+    
+    console.log("[Nodes] Despawning all deactivation nodes...");
+    enemyState.deactivationNodes.forEach(nodeData => {
+        // <<< REMOVE BoxHelper if it exists >>>
+        if (nodeData.mesh?.userData?.boxHelper && nodeData.mesh.userData.boxHelper.parent) {
+             nodeData.mesh.userData.boxHelper.parent.remove(nodeData.mesh.userData.boxHelper);
+             nodeData.mesh.userData.boxHelper.dispose(); // Dispose helper geometry
+             delete nodeData.mesh.userData.boxHelper; // Clean up reference
+        }
+        // <<< END REMOVE BoxHelper >>>
+
+        if (nodeData.mixer) {
+            nodeData.mixer.stopAllAction(); // Stop animations
+        }
+        if (nodeData.mesh && nodeData.mesh.parent) {
+            nodeData.mesh.parent.remove(nodeData.mesh); // Remove from scene
+            // Basic cleanup, might need more for complex models
+            nodeData.mesh.traverse(child => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            });
+        }
+    });
+    enemyState.deactivationNodes = []; // Clear the array
+    enemyState.activationTimers = {}; // Clear timers
 } 

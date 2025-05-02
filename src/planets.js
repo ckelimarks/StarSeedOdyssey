@@ -30,7 +30,9 @@ export function createSphere(radius, color, position, name, isHome = false) {
         // Base material properties for planets/player
         const materialProps = {
             roughness: 1.0, // Default roughness (will be modulated by map)
-            metalness: 0.0 // Default metalness (non-metallic grass)
+            metalness: 0.0, // Default metalness (non-metallic grass)
+            transparent: false,
+            opacity: 1.0
         };
 
         // Define the base path for the PBR textures

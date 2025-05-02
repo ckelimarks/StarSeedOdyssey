@@ -44,6 +44,8 @@ import {
 import { updateCamera } from './camera.js';
 import { initPal, updatePal, palMesh } from './pal.js'; // ADDED Pal import and palMesh export
 import { initEnemy, updateEnemy } from './enemy.js'; // <<< ADDED Enemy import
+// <<< Import Aperture Model >>>
+import { techApertureModelProto } from './resources.js';
 
 console.log("main.js: Script start");
 
@@ -107,16 +109,23 @@ let hoveredPlanet = null; // Reference to the currently hovered planet { name, m
 let intersectablePlanets = []; // Array of meshes/groups to check for intersection
 // -------------------------------
 
+
+let debugNodeSpawned = false;
+
 // --- NEW: Pal State ---
 let isPalInitialized = false;
 // -------------------
 
 // Temp vectors for calculations
 const _tempPlayerPos = new THREE.Vector3();
+const _debugPlayerPos = new THREE.Vector3(); // <<< ADDED for debug spawn
 const _launchPadLocalPos = new THREE.Vector3(); // Store LOCAL pad position
 const _launchPadWorldPos = new THREE.Vector3(); // For launch pad world coordinates (calculated in animate)
 const _launchPadNormal = new THREE.Vector3();   // For launch pad orientation (calculated in animate)
 const _vec3 = new THREE.Vector3(); // Generic temporary vector
+const _vector3_2 = new THREE.Vector3(); // <<< ADD Declaration for second temp vector
+const _modelUp = new THREE.Vector3(0, 1, 0); // <<< ADD Declaration for model up vector
+const _alignmentQuaternion = new THREE.Quaternion(); // <<< ADD Declaration for alignment quaternion
 const _worldUp = new THREE.Vector3(0, 1, 0); // Define World Up vector
 const _tempColor = new THREE.Color(); // For color lerp
 
@@ -548,6 +557,9 @@ async function init() {
         }
         // Store home planet world position (assuming it doesn't move)
         homePlanet.getWorldPosition(_mapHomePlanetWorldPos);
+
+      
+
         console.log("Main INIT: Planets initialized.");
 
         // --- Populate intersectable planets list ---
@@ -637,8 +649,8 @@ async function init() {
         window.playerState = initPlayer(scene, homePlanet, audioListener);
         console.log("Main INIT: Player initialized.");
 
-        // --- Step 5.5: Initialize Enemy ---
-        enemyState = initEnemy(scene, homePlanet); // <<< MOVED & Assigned enemyState
+        // --- Step 5.5: Initialize Enemy --- <<< Pass planetsState >>>
+        enemyState = initEnemy(scene, homePlanet, planetsState);
         console.log("Main INIT: Enemy initialization requested.");
         // ----------------------------------
 
@@ -1135,6 +1147,7 @@ function animate() {
     const deltaTime = clock.getDelta();
     const now = performance.now(); // performance.now() for general timing
     const audioNow = audioListener?.context?.currentTime ?? 0; // Web Audio time for audio scheduling
+
 
     // --- Update Filter Transition --- 
     if (isFilterTransitioning && globalLowPassFilter && audioNow > 0) {

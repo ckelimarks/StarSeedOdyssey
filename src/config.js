@@ -171,7 +171,16 @@ export const ENEMY_FRICTION = FRICTION; // Same friction for now
 // --------------------------- 
 
 // --- NEW: Purple Tree Config ---
-export const NUM_PURPLE_TREES = 10;
-export const PURPLE_TREE_SCALE = 0.7; // Increased from 0.5 (0.5 * 4)
+export const NUM_PURPLE_TREES = 3;
+export const PURPLE_TREE_SCALE = 0.7;
+
+// --- NEW: Enemy Deactivation Node Constants ---
+export const NODES_REQUIRED = 3;
+export const NODE_ACTIVATION_DURATION = 2.0; // seconds to stand near node
+export const NODE_INTERACTION_DISTANCE = 5.0; // How close player needs to be
+export const MIN_NODE_DISTANCE = 0.0; // Minimum distance between nodes and from enemy spawn (Reduced from 40.0 for testing)
+
+// --- Audio System Constants ---
+// ... existing code ...
 
 // --- END OF FILE (Remove duplicated sections below) --- 

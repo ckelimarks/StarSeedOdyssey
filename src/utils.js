@@ -19,7 +19,7 @@ export function getRandomPositionOnPlanet(homePlanet, planetsState) {
     const z = Math.cos(theta);
     
     const position = new THREE.Vector3(x, y, z);
-    position.multiplyScalar(homePlanetConfig.radius + config.GEM_SIZE/2);
+    position.multiplyScalar(homePlanetConfig.radius);
     return position;
 }
 
