@@ -86,6 +86,13 @@ let isCameraInTerraformPosition = false; // NEW: Flag to track camera arrival
 
 let enemyState = null; // <<< ADDED Enemy state variable
 let isDebugCameraActive = false; // NEW: Flag for top-down debug camera view
+let isGameOver = false; // <<< NEW: Game Over State Flag
+let shakeDuration = 0; // <<< NEW: Screen Shake State
+let shakeIntensity = 0;
+let shakeTimer = 0;
+let playerHealth = 3; // <<< NEW: Player Health
+let playerHitCooldownTimer = 0; // <<< NEW: Invulnerability Timer
+const PLAYER_HIT_COOLDOWN_DURATION = 1.0; // <<< NEW: Cooldown duration in seconds
 
 // UI Element References
 let seedBankElement = null;
@@ -101,6 +108,9 @@ let boostStatusElement = null; // NEW
 let enemyStatusElement = null; // <<< ADDED
 let planetTooltipElement = null; // <<< NEW: For hover info
 let planetOutlineElement = null; // <<< NEW: For CSS outline
+let gameOverOverlayElement = null; // <<< NEW: Game Over Screen
+let playerHealthElement = null; // <<< NEW: Player Health UI
+// let startOverlayElement = null; // <<< REMOVED: Start Overlay UI
 
 // --- Raycasting & Hover State ---
 const raycaster = new THREE.Raycaster();
@@ -277,14 +287,23 @@ function handleTerraformClick() {
     if (planetData && planetData.seedsDelivered >= planetData.seedsRequired && !isTerraforming[targetPlanetName] && !isCameraFocusingPlanet) { 
         console.log(`TERRAFORMING ${targetPlanetName}! Initiating camera move.`);
         
-        // Calculate and store the view offset relative to the planet
+        // --- Calculate and store the view offset relative to the planet ---
         const planetRadius = planetData.mesh.geometry.parameters.radius || 50;
-        planetData.mesh.getWorldPosition(_planetFocusWorldPos); // Get planet pos NOW
-        terraformViewOffset.subVectors(camera.position, _planetFocusWorldPos); // Vector from planet to camera
-        terraformViewOffset.normalize().multiplyScalar(planetRadius * 3.5); // Scale offset (adjust multiplier as needed, e.g., 3.5)
-        // Optional: Add some height relative to the planet-camera vector? 
-        // This is trickier; might be better to adjust the initial offset calculation or the lookAt slightly.
-        // Let's stick to the direct offset for now.
+        planetData.mesh.getWorldPosition(_planetFocusWorldPos); // Get planet center pos
+        
+        // <<< CHANGE: Calculate offset based on player-planet direction >>>
+        // <<< RESTORE Original Offset Calculation >>>
+        if (window.playerState?.visualMesh) {
+            window.playerState.visualMesh.getWorldPosition(_tempPlayerPos); // Get player world pos
+            terraformViewOffset.subVectors(_tempPlayerPos, _planetFocusWorldPos).normalize(); // Direction from planet to player
+        } else {
+            // Fallback if player isn't ready: use camera's direction
+            console.warn("TerraformClick: Player mesh not found, using camera direction for offset.");
+            terraformViewOffset.subVectors(camera.position, _planetFocusWorldPos).normalize(); // Original fallback
+        }
+        // <<< END RESTORE >>>
+        terraformViewOffset.multiplyScalar(planetRadius * 2.5); // <<< INCREASE Multiplier (was 1.8)
+        // <<< END CHANGE >>>
 
         // Set camera focus state initially
         cameraFocusTarget = planetData.mesh;
@@ -442,6 +461,12 @@ async function init() {
             console.warn("Map container element not found. Mini-map will not be initialized.");
             // Optionally throw an error or handle gracefully
         }
+        // <<< ADD BACK Get Element References >>>
+        gameOverOverlayElement = document.getElementById('gameOverOverlay');
+        playerHealthElement = document.getElementById('player-health');
+        // startOverlayElement = document.getElementById('start-overlay'); // <<< REMOVED Get Start Overlay Element
+        console.log(`[Init Debug] gameOverOverlayElement found? ${!!gameOverOverlayElement}`); // Check immediately
+        // console.log(`[Init Debug] startOverlayElement found? ${!!startOverlayElement}`); // <<< REMOVED log
         // ---------------------------------
 
         // --- Step 1: Initialize Scene, Camera, Renderer, Lights ---
@@ -507,7 +532,12 @@ async function init() {
             // --- Start Ambient Sound --- (Moved after loading finishes)
             if (window.loadedSounds.ambientSound && window.loadedSounds.ambientSound.buffer && !window.loadedSounds.ambientSound.isPlaying) {
                  if (window.loadedSounds.ambientSound.context.state === 'running') {
-                     window.loadedSounds.ambientSound.play();
+                     // <<< Assign global reference AFTER checking loadedSounds >>>
+                     ambientSound = window.loadedSounds.ambientSound; 
+                     // <<< ADD Log before playing >>>
+                     console.log(`[Debug Init Ambient Start] Trying to play ambientSound. Exists: ${!!ambientSound}, Buffer: ${!!ambientSound?.buffer}`);
+                     // <<< END Log >>>
+                     ambientSound.play();
                      console.log("Main INIT: Started ambient sound.");
                  } else {
                      console.warn("Main INIT: Cannot start ambient sound - audio context not running.");
@@ -519,18 +549,8 @@ async function init() {
             }
             // --------------------------
             
-            // --- Start Initial Music --- 
-            // playAppropriateMusic(true); // Enemy starts awake, play danger theme // <<< OLD
-            playAppropriateMusic(false); // Enemy starts asleep, play normal theme // <<< NEW
-            /* // Old direct play logic
-            if (window.loadedSounds?.dangerThemeSound && window.loadedSounds.dangerThemeSound.buffer && !window.loadedSounds.dangerThemeSound.isPlaying) {
-                window.loadedSounds.dangerThemeSound.setVolume(window.loadedSounds.dangerThemeSound.userData.baseVolume || 0.3);
-                window.loadedSounds.dangerThemeSound.play();
-                console.log("[Music] Started initial danger theme directly.");
-            } else {
-                console.warn("[Music] Could not start initial danger theme.");
-            }
-            */
+            // --- Start Initial Music (Moved AFTER ambient sound attempt) --- 
+            // playAppropriateMusic(false); // <<< REMOVE from here
             // --------------------------
 
         } catch (error) {
@@ -946,6 +966,16 @@ async function init() {
 
         console.log("Main INIT: Initialization complete.");
 
+        // --- Start Initial Music (REMOVED DELAY) --- 
+        // console.log("Main INIT: Attempting to play initial music with a delay..."); // Remove log
+        // setTimeout(() => {
+        //     console.log("Main INIT: Delay complete, calling playAppropriateMusic.");
+        //     playAppropriateMusic(false); 
+        // }, 500); // Delay by 500ms (0.5 seconds)
+        playAppropriateMusic(false); // <<< Call directly after init completes
+        console.log("Main INIT: Called playAppropriateMusic for initial theme."); // Add confirmation log
+        // -------------------------------------------------
+
     } catch (error) {
         console.error("Main INIT: Critical error during initialization!", error);
         // Display error to user?
@@ -1138,10 +1168,11 @@ function updateMiniMap() {
 // -------------------------------------
 
 function animate() {
-    stats.begin(); // START FPS counter
-    
-    // Request next frame
-    requestAnimationFrame(animate);
+    if (isGameOver) return; // <<< Stop updates if Game Over
+
+    // Request next frame AFTER game over check
+    requestAnimationFrame(animate); 
+    stats.begin(); // START FPS counter AFTER game over check
 
     const deltaTime = clock.getDelta();
     const now = performance.now(); // performance.now() for general timing
@@ -1196,15 +1227,15 @@ function animate() {
     updatePal(deltaTime, window.playerState?.mesh, homePlanet); // Update call with args
 
     // --- NEW: Update Enemy ---
-    if (enemyState?.isInitialized) { // Check if enemy is ready
-        updateEnemy(deltaTime, window.playerState?.mesh);
-        // --- Update Enemy Spotlight Helper ---
-        if (enemyState.spotLightHelper) {
-            enemyState.spotLightHelper.update();
-        }
-        // -------------------------------------
+    if (enemyState && enemyState.isInitialized) {
+        // <<< Pass player velocity to enemy >>>
+        const playerVelocity = window.playerState ? window.playerState.velocity : new THREE.Vector3();
+        updateEnemy(deltaTime, window.playerState?.visualMesh, playerVelocity, triggerScreenShake); // <<< Pass triggerScreenShake
     }
-    // --------------------------
+    // -----------------
+
+  
+    // -------------------------------
 
     // --- NEW: Handle Fuel Consumption ---
     if (window.playerState && inventory.fuel > 0) {
@@ -1251,25 +1282,31 @@ function animate() {
                 console.log(`ColorLerp: ${planetName} alpha = ${alpha.toFixed(2)}`);
                 
                 const targetColor = 0x00ff00; 
+                // <<< ADD Log before lerp >>>
+                console.log(`   Original: #${planetData.originalColor.getHexString()}, Current: #${planetData.mesh.material.color.getHexString()}, Target: #${_tempColor.setHex(targetColor).getHexString()}`);
+                // <<< END Log >>>
                 planetData.mesh.material.color.lerpColors(planetData.originalColor, _tempColor.setHex(targetColor), alpha);
                 
                 if (alpha >= 1.0) {
-                    console.log(`ColorLerp: Terraforming color complete for ${planetName}.`);
-                    isTerraforming[planetName] = false; 
+                    console.log(`ColorLerp: Terraforming COMPLETE for ${planetName}.`); // <<< ADD LOG
+                    isTerraforming[planetName] = false;
+                    terraformStartTime[planetName] = null; // Reset start time
+                    isCameraInTerraformPosition = false; // <<< ADD: Reset flag
 
-                    // --- REMOVE Terraform Success Sound Call HERE --- 
-                    // playTerraformSuccessSound(); 
-                    // --------------------------------------------
-
-                    // Show message
+                    // Trigger success UI/sound
                     if (missionStatusElement) {
-                        missionStatusElement.textContent = `${planetName} Terraformed Successfully!`;
-                        missionStatusElement.style.color = '#00ee00'; 
+                        missionStatusElement.textContent = `${planetName} Terraformed!`;
                         missionStatusElement.style.display = 'block';
-                        setTimeout(() => {
-                            if (missionStatusElement) missionStatusElement.style.display = 'none';
-                        }, 2500); 
+                        // Fade out after a delay
+                        setTimeout(() => { missionStatusElement.style.display = 'none'; }, 3000);
                     }
+                    // playTerraformSuccessSound(); // <<< COMMENT OUT Sound Call Here
+
+                    // <<< ADD LOG: Releasing camera focus
+                    console.log(`ColorLerp: Releasing camera focus from ${planetName}.`);
+                    cameraFocusTarget = null;
+                    isCameraFocusingPlanet = false;
+                    
                 }
             } else { 
                  isTerraforming[planetName] = false; 
@@ -1450,12 +1487,20 @@ function animate() {
         // --- Direct Camera Control for Planet Focus ---
         cameraFocusTarget.getWorldPosition(_planetFocusWorldPos); 
         _desiredCamPos.addVectors(_planetFocusWorldPos, terraformViewOffset); 
-        camera.position.lerp(_desiredCamPos, config.CAMERA_SMOOTH_FACTOR * 0.5); 
+        // <<< REMOVE Logs for Desired Position >>>
+        // console.log(`[Focus Cam] PlanetPos: ...`); 
+        // console.log(`[Focus Cam] Offset: ...`); 
+        // console.log(`[Focus Cam] TargetPos:...`); 
+        // const camPosBefore = camera.position.clone(); 
+        camera.position.lerp(_desiredCamPos, config.CAMERA_SMOOTH_FACTOR * 0.5); // <<< REVERTED Lerp Factor AGAIN
+        // console.log(`[Focus Cam] CamPos Before Lerp: ...`); 
+        // console.log(`[Focus Cam] CamPos After Lerp:  ...`); 
+        // <<< END REMOVE Logs >>>
         camera.lookAt(_planetFocusWorldPos);
 
         // --- Check if camera is in position to start terraform ---
         const distSq = camera.position.distanceToSquared(_desiredCamPos);
-        const arrivalThresholdSq = 500.0; // INCREASED THRESHOLD SIGNIFICANTLY (was 50.0)
+        const arrivalThresholdSq = 50000.0; // <<< INCREASED Threshold SIGNIFICANTLY
         // Log distance check (Uncommented for debugging)
         console.log(`CameraFocus: distSq = ${distSq.toFixed(2)}, thresholdSq = ${arrivalThresholdSq}`); 
         
@@ -1463,7 +1508,7 @@ function animate() {
              console.log(`CameraFocus: Camera arrived at focus point (distSq: ${distSq.toFixed(2)}).`); 
              isCameraInTerraformPosition = true;
              // --- Play Terraform Success Sound ON CAMERA ARRIVAL --- 
-             playTerraformSuccessSound(); 
+             playTerraformSuccessSound(); // <<< UNCOMMENT Call Here AGAIN
              // -----------------------------------------------------
              const targetPlanetName = cameraFocusTarget.name;
              if (planetsState[targetPlanetName]) {
@@ -1634,6 +1679,162 @@ function animate() {
          }
          stats.end();
     }
+
+    // --- Apply Screen Shake BEFORE camera update ---
+    if (shakeTimer > 0) {
+        const decayFactor = shakeTimer / shakeDuration; // Linear decay
+        const currentIntensity = shakeIntensity * decayFactor;
+        
+        // Generate random offsets
+        const offsetX = (Math.random() - 0.5) * 2 * currentIntensity;
+        const offsetY = (Math.random() - 0.5) * 2 * currentIntensity;
+
+        // Apply offset relative to camera's current orientation
+        // Ensure camera's matrixWorld is up-to-date
+        camera.updateMatrixWorld(); 
+        const cameraRight = _vec3.setFromMatrixColumn(camera.matrixWorld, 0);
+        const cameraUp = _vector3_2.setFromMatrixColumn(camera.matrixWorld, 1);
+        
+        camera.position.addScaledVector(cameraRight, offsetX);
+        camera.position.addScaledVector(cameraUp, offsetY);
+
+        shakeTimer -= deltaTime;
+        if (shakeTimer <= 0) {
+            shakeTimer = 0;
+            shakeIntensity = 0;
+            shakeDuration = 0;
+            console.log("[Screen Shake] Finished.");
+            // No need to reset position if offsets were relative
+        }
+    }
+    // ---------------------------------------------
+
+    // Update camera position and orientation
+    // <<< ADD Conditional Execution for Default Camera Update >>>
+    if (!isCameraFocusingPlanet) { // Only update default if NOT focusing planet
+        updateCamera(camera, window.playerState?.visualMesh, cameraFocusTarget, isCameraFocusingPlanet, deltaTime);
+    }
+    // <<< END Conditional >>>
+
+    // --- Apply Screen Shake AFTER camera update ---
+    if (shakeTimer > 0) {
+        const decayFactor = shakeTimer / shakeDuration; // Linear decay
+        const currentIntensity = shakeIntensity * decayFactor;
+        
+        // Generate random offsets
+        const offsetX = (Math.random() - 0.5) * 2 * currentIntensity;
+        const offsetY = (Math.random() - 0.5) * 2 * currentIntensity;
+
+        // Apply offset relative to camera's current orientation
+        // Ensure camera's matrixWorld is up-to-date
+        camera.updateMatrixWorld(); 
+        const cameraRight = _vec3.setFromMatrixColumn(camera.matrixWorld, 0);
+        const cameraUp = _vector3_2.setFromMatrixColumn(camera.matrixWorld, 1);
+        
+        camera.position.addScaledVector(cameraRight, offsetX);
+        camera.position.addScaledVector(cameraUp, offsetY);
+
+        shakeTimer -= deltaTime;
+        if (shakeTimer <= 0) {
+            shakeTimer = 0;
+            shakeIntensity = 0;
+            shakeDuration = 0;
+            console.log("[Screen Shake] Finished.");
+            // No need to reset position if offsets were relative
+        }
+    }
+    // ---------------------------------------------
+
+    // --- Update Hit Cooldown Timer ---
+    if (playerHitCooldownTimer > 0) {
+        playerHitCooldownTimer -= deltaTime;
+        playerHitCooldownTimer = Math.max(0, playerHitCooldownTimer); // Clamp to 0
+    }
+    // -------------------------------
+
+    // --- NEW: Collision Detection (Updated for Health) ---
+    // <<< ADD Check: Only check collision if enemy is NOT sleeping >>>
+    if (playerHitCooldownTimer <= 0 && window.playerState?.visualMesh && enemyState?.mesh && enemyState?.currentState !== 'SLEEPING') { // Check cooldown AND enemy state
+        if (checkCollision(
+            window.playerState.visualMesh,
+            config.PLAYER_RADIUS,
+            enemyState.mesh,
+            config.ENEMY_RADIUS
+        )) {
+            console.log(`COLLISION! Health decreasing from ${playerHealth}. Cooldown timer: ${playerHitCooldownTimer.toFixed(2)}`); // <<< ADD Log health BEFORE decrement
+            playerHealth--;
+            updatePlayerHealthUI();
+            playerHitCooldownTimer = PLAYER_HIT_COOLDOWN_DURATION; // Start cooldown
+            console.log(`Cooldown started. New timer value: ${playerHitCooldownTimer.toFixed(2)}`); // <<< ADD Log cooldown start
+
+            // Play collision sound
+            if (window.loadedSounds?.playerCollideSound) {
+                if (window.loadedSounds.playerCollideSound.isPlaying) window.loadedSounds.playerCollideSound.stop();
+                window.loadedSounds.playerCollideSound.play();
+            }
+
+            if (playerHealth <= 0) {
+                // --- GAME OVER --- 
+                console.log("GAME OVER - Health Depleted!");
+                isGameOver = true;
+
+                // <<< Trigger Audio Filter Low Pass >>>
+                if (audioListener?.context && globalLowPassFilter) {
+                    const audioCtx = audioListener.context;
+                    const targetFrequency = 300; // Low frequency for muffled effect
+                    const now = audioCtx.currentTime;
+                    const endTime = now + FILTER_TRANSITION_DURATION; 
+                    try {
+                        const currentFrequency = globalLowPassFilter.frequency.value;
+                        globalLowPassFilter.frequency.cancelScheduledValues(now);
+                        globalLowPassFilter.frequency.setValueAtTime(currentFrequency, now);
+                        globalLowPassFilter.frequency.exponentialRampToValueAtTime(targetFrequency, endTime);
+                        console.log(`[Game Over Filter] Starting EXPONENTIAL ramp to ${targetFrequency}Hz`);
+                    } catch (e) {
+                        console.error("Error scheduling game over filter ramp:", e);
+                        globalLowPassFilter.frequency.setValueAtTime(targetFrequency, now); // Fallback
+                    }
+                } else {
+                    console.warn("Cannot apply game over filter: Audio context or filter node missing.");
+                }
+                // <<< End Audio Filter >>>
+
+                // Play Game Over Sound
+                if (window.loadedSounds?.gameOverSound) {
+                    if (window.loadedSounds.gameOverSound.isPlaying) window.loadedSounds.gameOverSound.stop();
+                    window.loadedSounds.gameOverSound.play();
+                }
+
+                // Show Overlay
+                console.log("Checking gameOverOverlayElement:", gameOverOverlayElement); // Debug log
+                if (gameOverOverlayElement) {
+                    gameOverOverlayElement.style.display = 'flex'; // Or 'block'
+                } else {
+                    console.error("Game Over Overlay Element not found!");
+                }
+
+                triggerScreenShake(1.0, 2.0); // Game over shake
+
+                // Stop Music/Other Sounds
+                playAppropriateMusic(null); // Attempt to stop music
+                // TODO: Stop enemy sounds
+                // TODO: Stop player sounds
+                
+                // No return needed here, loop will stop on next frame check
+
+                // <<< Add Key Listener for Restart >>>
+                console.log("Adding key listener for game restart.");
+                document.addEventListener('keydown', handleGameOverKeyPress, { once: true });
+                // <<< End Add Key Listener >>>
+
+            } else {
+                // --- Just Took Damage (Not Game Over) ---
+                console.log(`Damage taken. Remaining health: ${playerHealth}`); // <<< ADD Log remaining health
+                triggerScreenShake(0.4, 1.2); // Shorter/less intense shake for taking damage
+            }
+        }
+    }
+    // -----------------------------------------------------
 }
 
 // Add composer AND map resize to window resize handler
@@ -1669,3 +1870,46 @@ window.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('resize', onWindowResize);
     init();
 }); 
+
+// --- Collision Check Helper ---
+function checkCollision(mesh1, radius1, mesh2, radius2) {
+    if (!mesh1 || !mesh2) return false;
+    const pos1 = _vec3.setFromMatrixPosition(mesh1.matrixWorld);
+    const pos2 = _vector3_2.setFromMatrixPosition(mesh2.matrixWorld);
+    const distanceSq = pos1.distanceToSquared(pos2);
+    const radiiSumSq = (radius1 + radius2) * (radius1 + radius2);
+    return distanceSq < radiiSumSq;
+}
+// -----------------------------
+
+// --- Screen Shake Trigger ---
+function triggerScreenShake(duration, intensity) {
+    console.log(`[Screen Shake] Triggered - Duration: ${duration}, Intensity: ${intensity}`);
+    shakeDuration = duration;
+    shakeIntensity = intensity;
+    shakeTimer = duration; // Start the timer
+}
+// -------------------------
+
+// --- NEW: Player Health UI Update ---
+function updatePlayerHealthUI() {
+    if (playerHealthElement) {
+        playerHealthElement.textContent = `Health: ${playerHealth}`;
+        // Optional: Change color based on health
+        if (playerHealth === 1) {
+            playerHealthElement.style.color = 'red';
+        } else if (playerHealth === 2) {
+            playerHealthElement.style.color = 'orange';
+        } else {
+            playerHealthElement.style.color = 'white';
+        }
+    }
+}
+// ----------------------------------
+
+// --- NEW: Game Over Restart Handler ---
+function handleGameOverKeyPress() {
+    console.log("Game Over key press detected. Reloading game...");
+    window.location.reload(); 
+}
+// -------------------------------------

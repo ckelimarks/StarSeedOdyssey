@@ -165,10 +165,7 @@ export const BOOST_TRAIL_WIDTH = 1.5; // Width at player
 export const BOOST_TRAIL_MIN_WIDTH = 0.1; // Width at tail end 
 
 // --- NEW: Enemy Configuration ---
-export const ENEMY_ACCELERATION = ACCELERATION * 0.15; // Slower acceleration (was 0.25)
-export const ENEMY_MAX_VELOCITY = MAX_VELOCITY * 0.2; // Slower max speed (was 0.3)
-export const ENEMY_FRICTION = FRICTION; // Same friction for now
-// --------------------------- 
+// <<< REMOVE DUPLICATE BLOCK >>>
 
 // --- NEW: Purple Tree Config ---
 export const NUM_PURPLE_TREES = 3;
@@ -177,8 +174,14 @@ export const PURPLE_TREE_SCALE = 0.7;
 // --- NEW: Enemy Deactivation Node Constants ---
 export const NODES_REQUIRED = 3;
 export const NODE_ACTIVATION_DURATION = 2.0; // seconds to stand near node
-export const NODE_INTERACTION_DISTANCE = 5.0; // How close player needs to be
-export const MIN_NODE_DISTANCE = 20.0; // Minimum distance between nodes and from enemy spawn (Increased from 0.0)
+export const NODE_INTERACTION_DISTANCE = 5.0; // How close player needs to be to activate
+export const MIN_NODE_DISTANCE = 20.0; // Minimum distance between spawned nodes
+
+// Enemy Constants
+export const ENEMY_RADIUS = PLAYER_RADIUS * 5.0; // <<< INCREASED Multiplier AGAIN: Approximate radius for collision
+export const ENEMY_ACCELERATION = 15.0;
+export const ENEMY_FRICTION = 0.95;
+export const ENEMY_MAX_VELOCITY = 8.0;
 
 // --- Audio System Constants ---
 // ... existing code ...

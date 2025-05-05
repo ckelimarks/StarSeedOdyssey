@@ -33,7 +33,7 @@ const HUNT_PREDICTION_ERROR_DISTANCE = 2.0; // <<< NEW: How much inaccuracy when
 const SPOTLIGHT_TRACKING_SPEED = 6.0; // <<< INCREASED AGAIN
 const DETECTION_SOUND_COOLDOWN = 3.0; // <<< NEW: Cooldown for roar/siren sounds
 const PATROL_DURATION = 45.0; // <<< ADJUSTED for testing
-const SLEEP_DURATION = 10.0;  // <<< CORRECTED VALUE & ADDED SEMICOLON
+const SLEEP_DURATION = 100.0;  // <<< CORRECTED VALUE & ADDED SEMICOLON
 const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // <<< NEW: Added for music fade logic
 // ------------------------
 
@@ -455,8 +455,10 @@ export function initEnemy(scene, homePlanet, planetsData, audioListener) { // <<
  * Updates the Enemy bot's position, orientation, animation, and spotlight target.
  * @param {number} deltaTime Time since last frame.
  * @param {THREE.Object3D | null} playerMesh The player's mesh object (or null if not ready).
+ * @param {THREE.Vector3} playerVelocity The player's current velocity vector.
+ * @param {function} triggerScreenShakeFunc Function to call to trigger screen shake.
  */
-export function updateEnemy(deltaTime, playerMesh, playerVelocity) { // <<< Signature includes playerVelocity
+export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreenShakeFunc) { // <<< ADD triggerScreenShakeFunc
     if (!enemyState.isInitialized || !enemyState.mesh || !homePlanetRef || !playerMesh || !planetsStateRef) {
         return; // Exit if enemy not ready
     }
@@ -567,6 +569,7 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity) { // <<< Sign
                 enemyState.timeInSpotlight = 0; // Reset timer (still good practice)
                 enemyState.timeSincePlayerSeen = 0; // Reset hunt give up timer too
                 enemyState.statusText = "Hunting (Player Visible)"; // Update status
+                triggerScreenShakeFunc(0.6, 1.0); // <<< Increased Duration (was 0.3)
 
                 // Fade from walk/idle to walk
                 if (enemyState.actions.walk) {
@@ -666,6 +669,7 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity) { // <<< Sign
                 enemyState.timeInSpotlight = 0; // Reset timer
                 enemyState.timeSincePlayerSeen = 0; // Reset hunt give up timer
                 enemyState.statusText = "Hunting (Target Visible)";
+                triggerScreenShakeFunc(0.6, 1.0); // <<< Increased Duration (was 0.3)
 
                 // Fade from idle to walk
                 if (enemyState.actions.walk) {
@@ -1091,7 +1095,7 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity) { // <<< Sign
             // <<< ADD Ripple Shader Time Update >>>
             if (nodeData.indicatorCircle && nodeData.indicatorCircle.material.uniforms?.uTime) {
                 nodeData.indicatorCircle.material.uniforms.uTime.value = now * 0.001; // Convert ms to s
-                console.log(`[Ripple Update] Node ${nodeData.id} uTime updated to: ${nodeData.indicatorCircle.material.uniforms.uTime.value.toFixed(3)}`); // <<< ADD LOG
+                // console.log(`[Ripple Update] Node ${nodeData.id} uTime updated to: ${nodeData.indicatorCircle.material.uniforms.uTime.value.toFixed(3)}`); // <<< COMMENT OUT LOG
             } else if (nodeData.indicatorCircle) {
                 // console.warn(`[Ripple Debug] Node ${nodeData.id} has indicatorCircle but no uTime uniform?`);
             }
@@ -1174,7 +1178,7 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity) { // <<< Sign
                         // <<< END Stop Spawn Sound >>>
                         
                         // <<< Play the Single Activation Sound >>>
-                        const singleActivationSoundBuffer = window.loadedSounds?.nodeActivateSingleSound?.buffer;
+                        const singleActivationSoundBuffer = window.loadedSounds?.singleNodeActivationSound?.buffer; // <<< CORRECTED NAME
                         if (singleActivationSoundBuffer && enemyAudioListenerRef) {
                             const singleSoundInstance = new THREE.PositionalAudio(enemyAudioListenerRef);
                             singleSoundInstance.setBuffer(singleActivationSoundBuffer);
@@ -1244,6 +1248,7 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity) { // <<< Sign
              enemyState.statusText = "Deactivated"; 
              playAppropriateMusic(false); // Start fade to normal music immediately
              despawnDeactivationNodes();
+             triggerScreenShakeFunc(1.2, 1.5); // <<< Increased Duration (was 0.7)
              // Stop movement/scan sounds, pause animation, dim light etc.
              if (movementSound && enemyState.isMovingSoundPlaying) movementSound.stop();
              if (scanningSound && enemyState.isScanningSoundPlaying) scanningSound.stop();
@@ -1262,10 +1267,10 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity) { // <<< Sign
     // --- END NODE LOGIC ---
 
     // --- Update Node-to-Enemy Connection Lines --- <<< NEW SECTION FOR LOGS
-    console.log("[Enemy Lines Debug] Checking if lines should be updated..."); // <<< ADD LOG
+    // console.log("[Enemy Lines Debug] Checking if lines should be updated..."); // <<< COMMENT OUT LOG
     if (enemyState.deactivationNodes.length > 0 && enemyState.mesh) {
         // const finalLocalPos = enemyState.mesh.position; // <<< ALREADY CALCULATED ABOVE
-        console.log(`[Enemy Lines Debug] Calling updateNodeToEnemyLines with enemy local pos: ${JSON.stringify(finalLocalPos)}`); // <<< ADD LOG
+        // console.log(`[Enemy Lines Debug] Calling updateNodeToEnemyLines with enemy local pos: ${JSON.stringify(finalLocalPos)}`); // <<< COMMENT OUT LOG
         updateNodeToEnemyLines(finalLocalPos); // Pass enemy's local pos
     }
     // ---------------------------------------------
@@ -1565,11 +1570,11 @@ function removeAllNodeLines() {
 
 // <<< NEW DYNAMIC LINE FUNCTION >>>
 function updateNodeToEnemyLines(enemyLocalPos) {
-    console.log("[Enemy Lines Debug] updateNodeToEnemyLines called."); // <<< ADD LOG
+    // console.log("[Enemy Lines Debug] updateNodeToEnemyLines called."); // <<< COMMENT OUT LOG
     removeAllNodeLines(); // Clear previous lines first
 
     if (enemyState.deactivationNodes.length === 0 || !homePlanetRef || !enemyLocalPos) {
-        console.log(`[Enemy Lines Debug] Skipping line creation (Nodes: ${enemyState.deactivationNodes.length}, Planet: ${!!homePlanetRef}, EnemyPos: ${!!enemyLocalPos})`); // <<< ADD LOG
+        // console.log(`[Enemy Lines Debug] Skipping line creation (Nodes: ${enemyState.deactivationNodes.length}, Planet: ${!!homePlanetRef}, EnemyPos: ${!!enemyLocalPos})`); // <<< COMMENT OUT LOG
         return; // No nodes, planet, or enemy position to draw to
     }
 
@@ -1584,10 +1589,10 @@ function updateNodeToEnemyLines(enemyLocalPos) {
     });
     // <<< END ADD BACK >>>
 
-    console.log(`[Enemy Lines Debug] Looping through ${enemyState.deactivationNodes.length} nodes to create lines.`); // <<< ADD LOG
+    // console.log(`[Enemy Lines Debug] Looping through ${enemyState.deactivationNodes.length} nodes to create lines.`); // <<< COMMENT OUT LOG
     enemyState.deactivationNodes.forEach(nodeData => {
         if (!nodeData.mesh || nodeData.isActivated) {
-            console.log(`[Enemy Lines Debug] Skipping line for node ${nodeData.id} (Mesh: ${!!nodeData.mesh}, Activated: ${nodeData.isActivated})`); // <<< ADD LOG
+            // console.log(`[Enemy Lines Debug] Skipping line for node ${nodeData.id} (Mesh: ${!!nodeData.mesh}, Activated: ${nodeData.isActivated})`); // <<< COMMENT OUT LOG
             return; // Skip inactive or broken nodes
         }
 
@@ -1606,7 +1611,7 @@ function updateNodeToEnemyLines(enemyLocalPos) {
             // (This case might need refinement depending on desired visual)
             arcPointsLocal.push(nodeLocalPos.clone());
             arcPointsLocal.push(enemyLocalPos.clone());
-            console.warn(`[Enemy Lines Debug] Node ${nodeData.id}: Using straight line due to near collinear points.`);
+            // console.warn(`[Enemy Lines Debug] Node ${nodeData.id}: Using straight line due to near collinear points.`); // <<< COMMENT OUT LOG
         } else {
             // Calculate the rotation axis (cross product)
             const axis = new THREE.Vector3().crossVectors(startDir, endDir).normalize();
@@ -1637,12 +1642,12 @@ function updateNodeToEnemyLines(enemyLocalPos) {
         // --- END Arc Calculation ---
 
         // <<< ADD Log to check calculated points >>>
-        console.log(`[Enemy Lines Debug] Node ${nodeData.id}: Calculated ${arcPointsLocal.length} points for arc.`);
+        // console.log(`[Enemy Lines Debug] Node ${nodeData.id}: Calculated ${arcPointsLocal.length} points for arc.`); // <<< COMMENT OUT LOG
         if (arcPointsLocal.length > 0) {
             // Optionally log first/last point for sanity check (can be verbose)
             // console.log(`  Start: ${JSON.stringify(arcPointsLocal[0])}, End: ${JSON.stringify(arcPointsLocal[arcPointsLocal.length - 1])}`);
         } else {
-             console.warn(`[Enemy Lines Debug] Node ${nodeData.id}: arcPointsLocal is EMPTY!`);
+             console.warn(`[Enemy Lines Debug] Node ${nodeData.id}: arcPointsLocal is EMPTY!`); // <<< Keep this important warning
         }
         // <<< END Log >>>
 
@@ -1675,7 +1680,7 @@ function updateNodeToEnemyLines(enemyLocalPos) {
             // Add line to scene and state
             homePlanetRef.add(line);
             enemyState.nodeToEnemyLines.push(line); // Store reference
-            console.log(`[Enemy Lines Debug] Successfully created and added line for node ${nodeData.id}`); // <<< ADD LOG
+            // console.log(`[Enemy Lines Debug] Successfully created and added line for node ${nodeData.id}`); // <<< COMMENT OUT LOG
 
         } catch (error) {
             console.error(`[Nodes Line Error] Failed to create line for node ${nodeData.id}:`, error);

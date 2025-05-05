@@ -51,7 +51,7 @@ let playerLandSound = null; // NEW: For player landing
 let inventoryFullSound = null; // NEW: For inventory full
 let terraformReadySound = null; // NEW: For terraform ready
 let terraformSuccessSound = null; // NEW: For terraform success
-let themeMusic = null; // NEW: For theme music
+let themeMusicSound = null; // <<< USE THIS NAME
 let slowdownSound = null; // NEW: For fuel depletion slowdown
 let slowdownSoundPlayStartTime = 0; // NEW: Track playback start time
 let slowdownFadeRafId = null; // NEW: Track requestAnimationFrame ID
@@ -65,7 +65,16 @@ let enemyRoarSound = null;
 // --- NEW: Alarm Siren Sound (Non-Looping) ---
 let alarmSirenSound = null;
 // --- NEW: Danger Theme (Looping) ---
-let dangerThemeSound = null;
+let dangerMusicSound = null; // <<< USE THIS NAME
+// --- ADD Missing Declarations ---
+let nodeDeactivationSound = null;
+let nodeSpawnLoopSound = null;
+let nodeProximityLoopSound = null;
+let singleNodeActivationSound = null;
+let playerCollideSound = null;
+let gameOverSound = null;
+// --------------------------------
+
 // --- NEW: Music Volumes & Fade --- 
 const THEME_MUSIC_VOLUME = 0.14;
 const DANGER_THEME_VOLUME = 0.3; 
@@ -1277,465 +1286,149 @@ function playSlowdownSound() {
 // --- END Modified Slowdown Sound ---
 
 // Function to load all audio assets and return a Promise
-function loadAudio(listener) {
-    return new Promise((resolve, reject) => { 
-        audioListenerRef = listener; 
-        const loader = new THREE.AudioLoader();
-        let soundsLoaded = 0;
-        let totalSoundsToLoad = 25; // <<< Increment count to 25
-        const loadedSounds = {}; 
+async function loadAudio(listener) { // <<< Mark as async
+    audioListenerRef = listener; 
+    const loader = new THREE.AudioLoader();
+    
+    // <<< NEW: Central configuration for all sounds >>>
+    const soundsToLoadConfig = [
+        { name: 'pickupSound', path: 'sfx/treefall.mp3', volume: 0.5, loop: false, type: 'Audio', log: 'Seed (treefall) pickup sound loaded.' },
+        { name: 'fuelPickupSound', path: 'sfx/stone-break.mp3', volume: 0.5, loop: false, type: 'Audio', log: 'Fuel pickup sound loaded.' },
+        { name: 'rocketLaunchSound', path: 'sfx/rocketsound.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Rocket launch sound loaded.' },
+        { name: 'impactSound', path: 'sfx/impact-sound.mp3', volume: 0.7, loop: false, type: 'Audio', log: 'Impact sound loaded.' },
+        { name: 'rollingSound', path: 'sfx/rolling-sound.mp3', volume: config.ROLLING_SOUND_BASE_VOLUME, loop: true, type: 'Audio', log: 'Rolling sound loaded.' },
+        { name: 'ambientSound', path: 'sfx/wind-soft-crickets.wav', volume: 0.3, loop: true, type: 'Audio', log: 'Ambient sound loaded.' },
+        { name: 'boostBurstSound', path: 'sfx/boost_burst.mp3', volume: 0.6, loop: false, type: 'PositionalAudio', refDistance: 10, rolloffFactor: 1, log: 'Boost Burst sound loaded.' },
+        { name: 'boostRiseSound', path: 'sfx/boost_rise.mp3', volume: 0.5, loop: false, type: 'PositionalAudio', refDistance: 15, rolloffFactor: 1, log: 'Boost Rise sound loaded.' },
+        { name: 'palMovementSound', path: 'sfx/pal/palmovement-sound.wav', volume: config.PAL_MOVE_SOUND_BASE_VOLUME, loop: true, type: 'PositionalAudio', refDistance: config.PAL_SOUND_REF_DISTANCE, rolloffFactor: config.PAL_SOUND_ROLLOFF_FACTOR, log: 'Pal movement sound loaded (Positional).' },
+        { name: 'palArrivalSound', path: 'sfx/pal/yes.wav', volume: 0.8, loop: false, type: 'PositionalAudio', refDistance: config.PAL_SOUND_REF_DISTANCE, rolloffFactor: config.PAL_SOUND_ROLLOFF_FACTOR, log: 'Pal arrival sound loaded.' },
+        { name: 'playerJumpSound', path: 'sfx/jump-sound.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Player jump sound loaded.' }, // Corrected path
+        // { name: 'playerLandSound', path: 'sfx/land.mp3', volume: 0.5, loop: false, type: 'Audio', log: 'Player land sound loaded.' }, // File missing?
+        // { name: 'inventoryFullSound', path: 'sfx/inventory-full.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Inventory full sound loaded.' }, // File missing?
+        // { name: 'enemyScanningSound', path: 'sfx/enemy/enemy-scanning.mp3', volume: 0.7, loop: true, type: 'Audio', log: 'Enemy scanning sound loaded.' }, // File missing?
+        { name: 'enemyRoarSound', path: 'sfx/enemyroar.mp3', volume: 0.9, loop: false, type: 'PositionalAudio', refDistance: 100, rolloffFactor: 1.2, log: 'Enemy roar sound loaded.' }, // Corrected path
+        { name: 'terraformSuccessSound', path: 'sfx/terraformsucces.mp3', volume: 0.8, loop: false, type: 'Audio', log: 'Terraform success sound loaded.' }, // Corrected path (typo)
+        { name: 'terraformReadySound', path: 'sfx/terraform-ready-sound.mp3', volume: 0.7, loop: false, type: 'Audio', log: 'Terraform ready sound loaded.' }, // Corrected path
+        { name: 'nodeDeactivationSound', path: 'sfx/deactivatenodesound.wav', volume: 0.8, loop: false, type: 'PositionalAudio', refDistance: 50, rolloffFactor: 1, log: 'Node deactivation sound loaded (Positional).' }, // Corrected path
+        { name: 'nodeSpawnLoopSound', path: 'sfx/nodesound.mp3', volume: 0.6, loop: true, type: 'PositionalAudio', refDistance: 50, rolloffFactor: 1, log: 'Node spawn loop sound loaded (Positional).' }, // Corrected path (assumed)
+        // { name: 'enemyMovementSound', path: 'sfx/enemy/spider-steps.mp3', volume: 0.5, loop: true, type: 'PositionalAudio', refDistance: 70, rolloffFactor: 1.1, log: 'Enemy movement sound loaded (Positional).' }, // File missing? (maybe robottanksound.mp3?)
+        { name: 'slowdownSound', path: 'sfx/slowdown.mp3', volume: config.SLOWDOWN_SOUND_BASE_VOLUME, loop: false, type: 'Audio', log: 'Slowdown sound loaded.' },
+        { name: 'gameOverSound', path: 'sfx/GameOver.wav', volume: 0.7, loop: false, type: 'Audio', log: 'Game over sound loaded.' },
+        { name: 'alarmSirenSound', path: 'sfx/alarmsiren.mp3', volume: 0.6, loop: true, type: 'Audio', log: 'Alarm siren sound loaded.' }, // Corrected path
+        { name: 'nodeProximityLoopSound', path: 'sfx/enterNode.mp3', volume: 0.5, loop: true, type: 'PositionalAudio', refDistance: 40, rolloffFactor: 1.0, log: 'Node proximity loop sound loaded (Positional).' }, // Corrected path (assumed)
+        { name: 'singleNodeActivationSound', path: 'sfx/deactivateNodeSingle.mp3', volume: 0.7, loop: false, type: 'PositionalAudio', refDistance: 50, rolloffFactor: 1, log: 'Single node activation sound loaded (Positional).' }, // Corrected path (assumed)
+        { name: 'playerCollideSound', path: 'sfx/collidesound.mp3', volume: 0.8, loop: false, type: 'Audio', log: 'Player collide sound loaded.' },
+        { name: 'themeMusicSound', path: 'sfx/StarSeedTheme.mp3', volume: 0.6, loop: true, type: 'Audio', log: 'Theme music loaded.' },
+        { name: 'dangerMusicSound', path: 'sfx/DangerTheme.mp3', volume: 0.6, loop: true, type: 'Audio', log: 'Danger theme sound loaded.' },
+    ];
 
-        const checkAllLoaded = () => {
-            soundsLoaded++;
-            console.log(`[Audio Load] Loaded sound ${soundsLoaded} / ${totalSoundsToLoad}`);
-            if (soundsLoaded === totalSoundsToLoad) {
-                console.log("All audio loaded successfully.");
-                resolve(loadedSounds); // Resolve the main promise WITH the sounds object
+    // <<< NEW: Map config to promises using loadAsync >>>
+    const loadPromises = soundsToLoadConfig.map(config => 
+        loader.loadAsync(config.path).catch(err => {
+            console.error(`Error loading sound: ${config.path}`, err);
+            return null; // Return null on error to allow Promise.all to complete
+        })
+    );
+
+    // <<< REMOVE old counter logic >>>
+    // let soundsLoaded = 0;
+    // let totalSoundsToLoad = 25; // <<< Increment count to 25
+    // const loadedSounds = {}; 
+    // const checkAllLoaded = () => { ... };
+    // const onError = (url, err) => { ... };
+
+    // <<< REMOVE all individual loader.load(...) calls >>>
+    // loader.load('sfx/treefall.mp3', ...);
+    // loader.load('sfx/stone-break.mp3', ...);
+    // ... (remove all the rest)
+
+    // <<< ADD Promise.all handling (logic will be added in next step) >>>
+    try {
+        const buffers = await Promise.all(loadPromises);
+        
+        // <<< ADD Logic to process buffers and create sounds >>>
+        const loadedSounds = {};
+
+        buffers.forEach((buffer, index) => {
+            const config = soundsToLoadConfig[index];
+            if (buffer) {
+                let sound;
+                // Create appropriate audio type
+                if (config.type === 'PositionalAudio') {
+                    sound = new THREE.PositionalAudio(audioListenerRef);
+                    if (config.refDistance) sound.setRefDistance(config.refDistance);
+                    if (config.rolloffFactor) sound.setRolloffFactor(config.rolloffFactor);
+                } else { // Default to 'Audio'
+                    sound = new THREE.Audio(audioListenerRef);
+                }
+                
+                // Set common properties
+                sound.setBuffer(buffer);
+                sound.setLoop(config.loop);
+                sound.setVolume(config.volume);
+                
+                // Assign to global variable (for existing references)
+                // Use window scope explicitly for clarity
+                // window[config.name] = sound; // <<< REMOVE THIS LINE
+                
+                // <<< ADD: Assign to correct module-level variable >>>
+                switch (config.name) {
+                    case 'pickupSound': pickupSound = sound; break;
+                    case 'fuelPickupSound': fuelPickupSound1 = sound; break; // Matches original variable name
+                    case 'rocketLaunchSound': rocketLaunchSound = sound; break;
+                    case 'impactSound': impactSound = sound; break;
+                    case 'rollingSound': rollingSound = sound; console.log(`[Debug LoadAudio] Assigned rollingSound: ${!!rollingSound}`); break;
+                    case 'ambientSound': ambientSound = sound; console.log(`[Debug LoadAudio] Assigned ambientSound: ${!!ambientSound}`); break; // <<< ADD Log
+                    case 'boostBurstSound': boostBurstSound = sound; break;
+                    case 'boostRiseSound': boostRiseSound = sound; break;
+                    case 'palMovementSound': palMovementSound = sound; break;
+                    case 'palArrivalSound': palArrivalSound = sound; console.log(`[Debug LoadAudio] Assigned palArrivalSound: ${!!palArrivalSound}`); break;
+                    case 'playerJumpSound': playerJumpSound = sound; break;
+                    // case 'playerLandSound': playerLandSound = sound; break; // File missing
+                    // case 'inventoryFullSound': inventoryFullSound = sound; break; // File missing
+                    // case 'enemyScanningSound': enemyScanningSound = sound; break; // File missing
+                    case 'enemyRoarSound': enemyRoarSound = sound; break;
+                    case 'terraformSuccessSound': terraformSuccessSound = sound; break;
+                    case 'terraformReadySound': terraformReadySound = sound; break;
+                    case 'nodeDeactivationSound': nodeDeactivationSound = sound; break;
+                    case 'nodeSpawnLoopSound': nodeSpawnLoopSound = sound; break;
+                    // case 'enemyMovementSound': enemyMovementSound = sound; break; // File missing
+                    case 'slowdownSound': slowdownSound = sound; break;
+                    case 'gameOverSound': gameOverSound = sound; break;
+                    case 'alarmSirenSound': alarmSirenSound = sound; break;
+                    case 'nodeProximityLoopSound': nodeProximityLoopSound = sound; break;
+                    case 'singleNodeActivationSound': singleNodeActivationSound = sound; break;
+                    case 'playerCollideSound': playerCollideSound = sound; break;
+                    case 'themeMusicSound': themeMusicSound = sound; console.log(`[Debug LoadAudio] Assigned themeMusicSound: ${!!themeMusicSound}`); break; // <<< ADD Log
+                    case 'dangerMusicSound': dangerMusicSound = sound; console.log(`[Debug LoadAudio] Assigned dangerMusicSound: ${!!dangerMusicSound}`); break; // <<< ADD Log
+                    default: console.warn(`Sound name "${config.name}" not handled in module variable assignment.`);
+                }
+                // <<< END Assignment to module-level variable >>>
+
+                // Assign to the object returned by this function (still useful for window.loadedSounds)
+                loadedSounds[config.name] = sound; 
+                
+                console.log(config.log); // Log success
+            } else {
+                // Handle failed load (buffer is null)
+                // window[config.name] = null; // <<< REMOVE THIS LINE
+                // Assign null to the returned object if loading failed
+                loadedSounds[config.name] = null;
+                // We don't need to assign null to module variables as they start as null
+                console.warn(`Failed to load buffer for ${config.name} (${config.path}), sound set to null.`);
             }
-        };
+        });
+        // <<< END Buffer processing logic >>>
+        
+        console.log("All audio loading attempts finished (Promise.all resolved).");
+        return loadedSounds; // <<< RETURN the populated loadedSounds object >>>
 
-        const onError = (url, err) => {
-             console.error(`Error loading sound: ${url}`, err);
-             // Optionally reject, or just log and continue?
-             // For now, let's count it as "loaded" (but failed) to not block forever
-             checkAllLoaded(); 
-             // reject(new Error(`Failed to load sound: ${url}`)); // Alternative: Fail fast
-        };
-
-        // Load SEED pickup sound
-        loader.load('sfx/treefall.mp3', 
-            (buffer) => { 
-                pickupSound = new THREE.Audio(audioListenerRef);
-                pickupSound.setBuffer(buffer);
-                pickupSound.setVolume(0.5);
-                pickupSound.setLoop(false);
-                loadedSounds.pickupSound = pickupSound; // Store reference
-                console.log("Seed (treefall) pickup sound loaded.");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/treefall.mp3', err)
-        );
-
-        // Load FUEL pickup sound
-        loader.load('sfx/stone-break.mp3', 
-            (buffer) => {
-                fuelPickupSound1 = new THREE.Audio(audioListenerRef);
-                fuelPickupSound1.setBuffer(buffer);
-                fuelPickupSound1.setLoop(false);
-                fuelPickupSound1.setVolume(0.1);
-                loadedSounds.fuelPickupSound = fuelPickupSound1; // Store reference
-                console.log("Fuel pickup sound loaded.");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/stone-break.wav', err)
-        );
-
-        // Load rocket launch sound
-        loader.load('sfx/rocketsound.mp3', 
-            (buffer) => {
-                rocketLaunchSound = new THREE.Audio(audioListenerRef);
-                rocketLaunchSound.setBuffer(buffer);
-                rocketLaunchSound.setLoop(false); 
-                rocketLaunchSound.setVolume(0.6);
-                loadedSounds.rocketLaunchSound = rocketLaunchSound; // Store reference
-                console.log("Rocket launch sound loaded.");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/rocketsound.mp3', err)
-        );
-
-        // Load impact sound
-        loader.load('sfx/impact-sound.mp3', 
-            (buffer) => {
-                impactSound = new THREE.Audio(audioListenerRef);
-                impactSound.setBuffer(buffer);
-                impactSound.setLoop(false); 
-                impactSound.setVolume(0.7); 
-                loadedSounds.impactSound = impactSound; // Store reference
-                console.log("Impact sound loaded.");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/impact-sound.mp3', err)
-        );
-
-        // Load rolling sound
-        loader.load('sfx/rolling-sound.mp3', 
-            (buffer) => {
-                rollingSound = new THREE.Audio(audioListenerRef);
-                rollingSound.setBuffer(buffer);
-                rollingSound.setLoop(true); 
-                rollingSound.setVolume(config.ROLLING_SOUND_BASE_VOLUME);
-                loadedSounds.rollingSound = rollingSound; // Store reference
-                console.log("Rolling sound loaded.");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/rolling-sound.mp3', err)
-        );
-
-        // Load ambient sound
-        loader.load('sfx/wind-soft-crickets.wav', 
-            (buffer) => {
-                ambientSound = new THREE.Audio(audioListenerRef); 
-                ambientSound.setBuffer(buffer);
-                ambientSound.setLoop(true);
-                ambientSound.setVolume(0.3);
-                loadedSounds.ambientSound = ambientSound; // Store reference
-                console.log("Ambient sound loaded."); 
-                // --- REMOVED DEBUG and WINDOW ASSIGNMENT ---
-                // console.log(`[Audio Load DEBUG] Ambient check: ...`);
-                // window.ambientSound = ambientSound; 
-                // console.log(`[Audio Load DEBUG] Assigned to window.ambientSound.`);
-                // -----------------------------------------
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/wind-soft-crickets.wav', err)
-        );
-
-        // Load Boost Burst Sound
-        loader.load('sfx/boost_burst.mp3', 
-            (buffer) => {
-                boostBurstSound = new THREE.PositionalAudio(audioListenerRef);
-                boostBurstSound.setBuffer(buffer);
-                boostBurstSound.setRefDistance(10);
-                boostBurstSound.setRolloffFactor(1);
-                boostBurstSound.setVolume(0.6); 
-                boostBurstSound.loop = false;
-                loadedSounds.boostBurstSound = boostBurstSound; // Store reference
-                console.log("Boost Burst sound loaded.");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/boost_burst.mp3', err)
-        );
-
-        // Load Boost Rise Sound
-        loader.load('sfx/boost_rise.mp3', 
-            (buffer) => {
-                boostRiseSound = new THREE.PositionalAudio(audioListenerRef);
-                boostRiseSound.setBuffer(buffer);
-                boostRiseSound.setRefDistance(15);
-                boostRiseSound.setRolloffFactor(1);
-                boostRiseSound.setVolume(0.5); 
-                boostRiseSound.loop = false; 
-                loadedSounds.boostRiseSound = boostRiseSound; // Store reference
-                console.log("Boost Rise sound loaded.");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/boost_rise.mp3', err)
-        );
-
-        // --- Load Pal Movement Sound (CHANGED to PositionalAudio) ---
-        loader.load('sfx/pal/palmovement-sound.wav', 
-            (buffer) => {
-                palMovementSound = new THREE.PositionalAudio(audioListenerRef); // *** CHANGED ***
-                palMovementSound.setBuffer(buffer);
-                palMovementSound.setLoop(true); 
-                palMovementSound.setVolume(config.PAL_MOVE_SOUND_BASE_VOLUME); // Base volume at ref distance
-                palMovementSound.setRefDistance(config.PAL_SOUND_REF_DISTANCE); // *** ADDED ***
-                palMovementSound.setRolloffFactor(config.PAL_SOUND_ROLLOFF_FACTOR); // *** ADDED ***
-                loadedSounds.palMovementSound = palMovementSound; 
-                console.log("Pal movement sound loaded (Positional)."); 
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/pal/palmovement-sound.wav', err)
-        );
-        // -------------------------------------
-
-        // --- Load Pal Arrival Sound (remains the same) ---
-        loader.load('sfx/pal/yes.wav', 
-            (buffer) => {
-                palArrivalSound = new THREE.Audio(audioListenerRef); 
-                palArrivalSound.setBuffer(buffer);
-                palArrivalSound.setLoop(false);
-                palArrivalSound.setVolume(0.9); // Slightly louder maybe?
-                loadedSounds.palArrivalSound = palArrivalSound; // Store reference
-                console.log("Pal arrival sound loaded."); 
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/pal/yes.wav', err)
-        );
-        // -----------------------------------
-
-        // --- Load Player Jump Sound (NEW) ---
-        loader.load('sfx/jump-sound.mp3', 
-            (buffer) => {
-                playerJumpSound = new THREE.Audio(audioListenerRef); 
-                playerJumpSound.setBuffer(buffer);
-                playerJumpSound.setLoop(false);
-                playerJumpSound.setVolume(0.6); // Adjust volume as needed
-                loadedSounds.playerJumpSound = playerJumpSound; // Store reference
-                console.log("Player jump sound loaded."); 
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/jump-sound.mp3', err)
-        );
-        // -----------------------------------
-
-        // --- Load Player Land Sound (NEW) ---
-        loader.load('sfx/skid-sound.mp3', 
-            (buffer) => {
-                playerLandSound = new THREE.Audio(audioListenerRef); 
-                playerLandSound.setBuffer(buffer);
-                playerLandSound.setLoop(false);
-                playerLandSound.setVolume(0.35); // Adjust volume as needed (Reduced from 0.7)
-                loadedSounds.playerLandSound = playerLandSound; // Store reference
-                console.log("Player land sound loaded."); 
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/skid-sound.mp3', err)
-        );
-        // -----------------------------------
-
-        // --- Load Inventory Full Sound (NEW) ---
-        loader.load('sfx/collect-sound.wav', 
-            (buffer) => {
-                inventoryFullSound = new THREE.Audio(audioListenerRef); 
-                inventoryFullSound.setBuffer(buffer);
-                inventoryFullSound.setLoop(false);
-                inventoryFullSound.setVolume(0.7); // Adjust volume as needed
-                loadedSounds.inventoryFullSound = inventoryFullSound; // Store reference
-                console.log("Inventory full sound loaded."); 
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/collect-sound.wav', err)
-        );
-        // -----------------------------------
-
-        // --- Load Terraform Ready Sound (NEW) ---
-        loader.load('sfx/terraform-ready-sound.mp3', 
-            (buffer) => {
-                terraformReadySound = new THREE.Audio(audioListenerRef); 
-                terraformReadySound.setBuffer(buffer);
-                terraformReadySound.setLoop(false);
-                terraformReadySound.setVolume(0.8); // Adjust volume as needed
-                loadedSounds.terraformReadySound = terraformReadySound; // Store reference
-                console.log("Terraform ready sound loaded."); 
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/terraform-ready-sound.mp3', err)
-        );
-        // -----------------------------------
-
-        // --- Load Theme Music (Add Back) ---
-        loader.load('sfx/StarSeedTheme.mp3', 
-            (buffer) => {
-                const themeMusicSound = new THREE.Audio(audioListenerRef); 
-                themeMusicSound.setBuffer(buffer);
-                themeMusicSound.setLoop(true); 
-                // themeMusicSound.setVolume(0.14); // <<< REMOVED direct setVolume
-                themeMusicSound.setVolume(0); // Start silent
-                themeMusicSound.userData = { baseVolume: THEME_MUSIC_VOLUME }; // Store base volume
-                loadedSounds.themeMusicSound = themeMusicSound;
-                console.log("Theme music loaded."); 
-                checkAllLoaded();
-            }, 
-            undefined, // onProgress
-            (err) => onError('sfx/StarSeedTheme.mp3', err)
-        );
-        // -----------------------------------
-
-        // --- Load Terraform Success Sound (NEW) ---
-        loader.load('sfx/terraformsucces.mp3', 
-            (buffer) => {
-                const terraformSuccessSound = new THREE.Audio(audioListenerRef); 
-                terraformSuccessSound.setBuffer(buffer);
-                terraformSuccessSound.setLoop(false); // Non-looping
-                terraformSuccessSound.setVolume(0.7); // Adjust volume as needed
-                loadedSounds.terraformSuccessSound = terraformSuccessSound; // Add to the object
-                console.log("Terraform success sound loaded."); 
-                checkAllLoaded();
-            }, 
-            undefined, // onProgress
-            (err) => onError('sfx/terraformsucces.mp3', err)
-        );
-        // -----------------------------------
-
-        // --- Load Slowdown Sound (NEW) ---
-        loader.load('sfx/slowdown.mp3', 
-            (buffer) => {
-                slowdownSound = new THREE.Audio(audioListenerRef); 
-                slowdownSound.setBuffer(buffer);
-                slowdownSound.setLoop(false);
-                slowdownSound.setVolume(0.7); // Adjust volume as needed
-                loadedSounds.slowdownSound = slowdownSound; // Store reference
-                console.log("Slowdown sound loaded."); 
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/slowdown.mp3', err)
-        );
-        // -----------------------------------
-
-        // --- Load Enemy Movement Sound (NEW - Positional) ---
-        loader.load('sfx/robottanksound.mp3', 
-            (buffer) => {
-                enemyMovementSound = new THREE.PositionalAudio(audioListenerRef);
-                enemyMovementSound.setBuffer(buffer);
-                enemyMovementSound.setLoop(true);
-                enemyMovementSound.setRefDistance(5); // Full volume up to 5 units away
-                enemyMovementSound.setRolloffFactor(0.5); // Falloff factor (adjust as needed)
-                enemyMovementSound.setDistanceModel('inverse'); // Default, but explicit
-                // Volume starts at 1.0 (max) and decreases with distance
-                loadedSounds.enemyMovementSound = enemyMovementSound; 
-                console.log("Enemy movement sound loaded (Positional)."); 
-                checkAllLoaded();
-            }, 
-            undefined, // onProgress
-            (err) => onError('sfx/robottanksound.mp3', err)
-        );
-        // ----------------------------------------------------
-
-        // --- Load Enemy Scanning Sound (NEW) ---
-        loader.load('sfx/robottankrotatesound.mp3', 
-            (buffer) => {
-                enemyScanningSound = new THREE.Audio(audioListenerRef); // Non-positional
-                enemyScanningSound.setBuffer(buffer);
-                enemyScanningSound.setLoop(true); // Loop while scanning
-                enemyScanningSound.setVolume(0.6); // Adjust volume as needed
-                loadedSounds.enemyScanningSound = enemyScanningSound; 
-                console.log("Enemy scanning sound loaded."); 
-                checkAllLoaded();
-            }, 
-            undefined, // onProgress
-            (err) => onError('sfx/robottankrotatesound.mp3', err)
-        );
-        // --------------------------------------------------
-
-        // --- Load Enemy Roar Sound (Non-Looping) ---
-        loader.load('sfx/enemyroar.mp3', 
-            (buffer) => {
-                enemyRoarSound = new THREE.Audio(audioListenerRef);
-                enemyRoarSound.setBuffer(buffer);
-                enemyRoarSound.setLoop(false);
-                enemyRoarSound.setVolume(0.7);
-                loadedSounds.enemyRoarSound = enemyRoarSound;
-                console.log("Enemy roar sound loaded.");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/enemyroar.mp3', err)
-        );
-        // --------------------------------------------------
-
-        // --- Load Alarm Siren Sound (Non-Looping) ---
-        loader.load('sfx/alarmsiren.mp3', 
-            (buffer) => {
-                alarmSirenSound = new THREE.Audio(audioListenerRef);
-                alarmSirenSound.setBuffer(buffer);
-                alarmSirenSound.setLoop(false);
-                alarmSirenSound.setVolume(0.7);
-                loadedSounds.alarmSirenSound = alarmSirenSound;
-                console.log("Alarm siren sound loaded.");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/alarmsiren.mp3', err)
-        );
-        // --------------------------------------------------
-
-        // --- Load Danger Theme (Looping) ---
-        loader.load('sfx/dangertheme.mp3', 
-            (buffer) => {
-                dangerThemeSound = new THREE.Audio(audioListenerRef);
-                dangerThemeSound.setBuffer(buffer);
-                dangerThemeSound.setLoop(true);
-                // dangerThemeSound.setVolume(0.3); // <<< REMOVED direct setVolume
-                dangerThemeSound.setVolume(0); // Start silent
-                dangerThemeSound.userData = { baseVolume: DANGER_THEME_VOLUME }; // Store base volume
-                loadedSounds.dangerThemeSound = dangerThemeSound;
-                console.log("Danger theme sound loaded.");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/dangertheme.mp3', err)
-        );
-        // -----------------------------------
-
-        // --- Load Node Deactivation Sound (NEW) ---
-        loader.load('sfx/deactivatenodesound.wav', 
-            (buffer) => {
-                const deactivateNodeSound = new THREE.PositionalAudio(audioListenerRef); // <<< CHANGE to PositionalAudio
-                deactivateNodeSound.setBuffer(buffer);
-                deactivateNodeSound.setLoop(false);
-                deactivateNodeSound.setRefDistance(15); // <<< ADD Reference distance (adjust as needed)
-                deactivateNodeSound.setRolloffFactor(1.0); // <<< ADD Rolloff factor (adjust as needed)
-                // Volume is now positional, but we can set a base multiplier if needed (default is 1)
-                // deactivateNodeSound.setVolume(0.8); 
-                loadedSounds.deactivateNodeSound = deactivateNodeSound; // Store reference
-                console.log("Node deactivation sound loaded (Positional)."); // <<< Update log
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/deactivatenodesound.wav', err)
-        );
-        // --- END Load Node Deactivation Sound ---
-
-        // --- Load Node Spawn Loop Sound (NEW) ---
-        loader.load('sfx/nodesound.mp3', 
-            (buffer) => {
-                const nodeSpawnLoopSound = new THREE.PositionalAudio(audioListenerRef);
-                nodeSpawnLoopSound.setBuffer(buffer);
-                nodeSpawnLoopSound.setLoop(true); // Loop this one
-                nodeSpawnLoopSound.setRefDistance(10); 
-                nodeSpawnLoopSound.setRolloffFactor(1.0);
-                loadedSounds.nodeSpawnLoopSound = nodeSpawnLoopSound;
-                console.log("Node spawn loop sound loaded (Positional).");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/nodesound.mp3', err)
-        );
-        // --- END Load Node Spawn Loop Sound ---
-
-        // --- Load Node Proximity Loop Sound (NEW) ---
-        loader.load('sfx/enterNode.mp3', 
-            (buffer) => {
-                const nodeProximityLoopSound = new THREE.PositionalAudio(audioListenerRef);
-                nodeProximityLoopSound.setBuffer(buffer);
-                nodeProximityLoopSound.setLoop(true); // Loop this one
-                nodeProximityLoopSound.setRefDistance(10);
-                nodeProximityLoopSound.setRolloffFactor(1.0);
-                loadedSounds.nodeProximityLoopSound = nodeProximityLoopSound;
-                console.log("Node proximity loop sound loaded (Positional).");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/enterNode.mp3', err)
-        );
-        // --- END Load Node Proximity Loop Sound ---
-
-        // --- Load Single Node Activation Sound (NEW) ---
-        loader.load('sfx/deactivateNodeSingle.mp3', 
-            (buffer) => {
-                const nodeActivateSingleSound = new THREE.PositionalAudio(audioListenerRef);
-                nodeActivateSingleSound.setBuffer(buffer);
-                nodeActivateSingleSound.setLoop(false); // One-shot sound
-                nodeActivateSingleSound.setRefDistance(10);
-                nodeActivateSingleSound.setRolloffFactor(1.0);
-                loadedSounds.nodeActivateSingleSound = nodeActivateSingleSound;
-                console.log("Single node activation sound loaded (Positional).");
-                checkAllLoaded();
-            }, 
-            undefined, 
-            (err) => onError('sfx/deactivateNodeSingle.mp3', err)
-        );
-        // --- END Load Single Node Activation Sound ---
-
-    }); // End of Promise wrapper
+    } catch (error) {
+        console.error("Critical error during Promise.all for audio loading:", error);
+        throw error; 
+    }
 }
+// --- END Refactored loadAudio ---
 
 // --- NEW: Boost Sound Playback Functions ---
 function playBoostBurstSound(parentObject) { 
@@ -1842,24 +1535,43 @@ function playTerraformSuccessSound() {
 
 // --- NEW Music Switching Logic ---
 function playAppropriateMusic(isEnemyAwake) {
+    // <<< ADD Check for audioListenerRef >>>
+    if (!audioListenerRef) {
+        console.warn("[MUSIC CALL] Cannot switch music: audioListenerRef is not set.");
+        return;
+    }
+    // <<< END Check >>>
+
     const themeSound = window.loadedSounds?.themeMusicSound;
-    const dangerSound = window.loadedSounds?.dangerThemeSound;
+    const dangerSound = window.loadedSounds?.dangerMusicSound;
     const audioCtx = audioListenerRef?.context; // Get AudioContext
 
+    // <<< ADD Initial State Log >>>
+    console.log(`[Debug playAppropriateMusic Start] isEnemyAwake: ${isEnemyAwake}`);
+    console.log(`   themeSound exists: ${!!themeSound}, buffer: ${!!themeSound?.buffer}, isPlaying: ${themeSound?.isPlaying}`);
+    console.log(`   dangerSound exists: ${!!dangerSound}, buffer: ${!!dangerSound?.buffer}, isPlaying: ${dangerSound?.isPlaying}`);
+    console.log(`   audioCtx state: ${audioCtx?.state}`);
+    // <<< END Initial State Log >>>
+
+    console.log(`[MUSIC CALL] playAppropriateMusic called with isEnemyAwake = ${isEnemyAwake}`); // <<< LOG 1
+
     if (!themeSound || !dangerSound || !themeSound.buffer || !dangerSound.buffer || !audioCtx) {
-        console.warn("Cannot switch music: Sounds or AudioContext not ready.");
+        console.warn("[MUSIC CALL] Cannot switch music: Sounds or AudioContext not ready.");
         return;
     }
 
     // Ensure audio context is running (might be suspended after inactivity)
+    console.log(`[MUSIC CALL] AudioContext state: ${audioCtx.state}`); // <<< LOG 2
     if (audioCtx.state === 'suspended') {
+        console.log("[MUSIC CALL] Attempting AudioContext resume...");
         audioCtx.resume().then(() => {
-            console.log("[Music Crossfade] AudioContext Resumed.");
+            console.log("[Music Crossfade] AudioContext Resumed after suspension.");
             scheduleFade(isEnemyAwake, themeSound, dangerSound, audioCtx);
         }).catch(err => {
             console.error("[Music Crossfade] Failed to resume AudioContext:", err);
         });
     } else if (audioCtx.state === 'running') {
+        console.log("[MUSIC CALL] AudioContext is running, calling scheduleFade."); // <<< LOG 3
         scheduleFade(isEnemyAwake, themeSound, dangerSound, audioCtx);
     } else {
          console.warn(`[Music Crossfade] AudioContext in unexpected state: ${audioCtx.state}`);
@@ -1869,43 +1581,49 @@ function playAppropriateMusic(isEnemyAwake) {
 // Helper function to schedule the fade after ensuring context is running
 function scheduleFade(isEnemyAwake, themeSound, dangerSound, audioCtx) {
     const fadeEndTime = audioCtx.currentTime + MUSIC_ANTICIPATION_FADE_DURATION;
-    const themeTargetVolume = isEnemyAwake ? 0 : themeSound.userData.baseVolume;
-    const dangerTargetVolume = isEnemyAwake ? dangerSound.userData.baseVolume : 0;
+    // <<< FIX: Use the volume property directly from the sound object >>>
+    const themeTargetVolume = isEnemyAwake ? 0 : (themeSound.volume || 0.6); // Use loaded volume, fallback if needed
+    const dangerTargetVolume = isEnemyAwake ? (dangerSound.volume || 0.6) : 0; // Use loaded volume, fallback if needed
+    // <<< END FIX >>>
     const now = audioCtx.currentTime; // Get current time once
 
+    console.log(`[FADE] Scheduling fade for isEnemyAwake = ${isEnemyAwake}. CurrentTime: ${now.toFixed(2)}`); // <<< LOG 4
+    
     // <<< Log gain node value >>>
     const currentThemeGain = themeSound.gain?.gain?.value ?? 'N/A';
     const currentDangerGain = dangerSound.gain?.gain?.value ?? 'N/A';
 
-    console.log(`[Music Crossfade] CurrentTime: ${now.toFixed(2)}, FadeEndTime: ${fadeEndTime.toFixed(2)}`);
-    console.log(`[Music Crossfade] Target Volumes - Theme: ${themeTargetVolume}, Danger: ${dangerTargetVolume}`);
-    console.log(`[Music Crossfade] Current Gains - Theme: ${currentThemeGain.toFixed ? currentThemeGain.toFixed(2) : currentThemeGain}, Danger: ${currentDangerGain.toFixed ? currentDangerGain.toFixed(2) : currentDangerGain}`);
+    console.log(`[FADE] Current Gains - Theme: ${currentThemeGain.toFixed ? currentThemeGain.toFixed(2) : currentThemeGain}, Danger: ${currentDangerGain.toFixed ? currentDangerGain.toFixed(2) : currentDangerGain}`); // <<< LOG 5
+    console.log(`[FADE] Target Volumes - Theme: ${themeTargetVolume}, Danger: ${dangerTargetVolume}`); // <<< LOG 6
+    console.log(`[FADE] IsPlaying Flags - Theme: ${themeSound.isPlaying}, Danger: ${dangerSound.isPlaying}`); // <<< LOG 7
 
     // --- Start sounds only if they are NOT already playing AND need to fade IN --- 
     if (dangerTargetVolume > 0 && !dangerSound.isPlaying) {
-        console.log(`[Music] Starting danger theme (for fade-in from silent).`);
+        console.log(`[FADE] Starting danger theme (for fade-in).`); // <<< LOG 8
         // <<< Explicitly set gain node value low >>>
         if (dangerSound.gain?.gain) {
              dangerSound.gain.gain.setValueAtTime(0.001, now); // Set gain low NOW
         } else {
              dangerSound.setVolume(0.001); // Fallback
         }
+        console.log(`[Debug scheduleFade] Calling dangerSound.play()`); // <<< ADD Log
         dangerSound.play(); 
     }
     if (themeTargetVolume > 0 && !themeSound.isPlaying) {
-        console.log(`[Music] Starting normal theme (for fade-in from silent).`);
-         // <<< Explicitly set gain node value low >>>
+        console.log(`[FADE] Starting normal theme (for fade-in).`); // <<< LOG 9
+        // <<< Explicitly set gain node value low >>>
         if (themeSound.gain?.gain) {
              themeSound.gain.gain.setValueAtTime(0.001, now); // Set gain low NOW
         } else {
              themeSound.setVolume(0.001); // Fallback
         }
+        console.log(`[Debug scheduleFade] Calling themeSound.play()`); // <<< ADD Log
         themeSound.play();
     }
     // ---------------------------------------------------------------------------
 
     // --- Schedule Gain Ramps --- 
-    console.log(`[Music] Scheduling fade - Theme to ${themeTargetVolume}, Danger to ${dangerTargetVolume}. Current IsPlaying - Theme: ${themeSound.isPlaying}, Danger: ${dangerSound.isPlaying}`);
+    console.log(`[FADE] Scheduling gain ramps to Theme=${themeTargetVolume}, Danger=${dangerTargetVolume} ending at ${fadeEndTime.toFixed(2)}`); // <<< LOG 10
     if (themeSound.gain?.gain) {
         // <<< Explicitly cancel previous ramps and set start value >>>
         themeSound.gain.gain.cancelScheduledValues(now);
@@ -2001,7 +1719,7 @@ export {
     // --- New exports ---
     enemyRoarSound,
     alarmSirenSound,
-    dangerThemeSound, // <<< NEW EXPORT
+    dangerMusicSound, // <<< NEW EXPORT
     playAppropriateMusic, // <<< NEW EXPORT
     // --- Add model/animation exports ---
     techApertureModelProto, // <<< NEW EXPORT
