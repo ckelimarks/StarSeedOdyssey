@@ -1,3 +1,6 @@
+import { updatePlayer } from './player.js'; // <<< REMOVE getPlayerVelocity import
+import { initEnemy, updateEnemy, getEnemyState } from './enemy.js'; // Adjust based on your enemy file exports
+
 homePlanet.getWorldPosition(_mapHomePlanetWorldPos);
 
 // <<< Make Home Planet Transparent for Debugging >>>
@@ -69,4 +72,20 @@ if (!debugNodeSpawned && window.playerState?.mesh && techApertureModelProto && h
 // --- Update Filter Transition --- 
 if (isFilterTransitioning && globalLowPassFilter && audioNow > 0) {
 // ... existing code ...
+} 
+
+function animate() {
+    // ... existing code ...
+    const playerMesh = getPlayerMesh(); // Get player mesh
+    // <<< Get Velocity from playerState object >>>
+    const playerVel = playerState?.velocity; 
+    // ... existing code ...
+        // Update enemy logic only if it exists AND player velocity is valid
+        if (getEnemyState().mesh && playerMesh && playerVel) { // <<< ADD playerVel check
+            updateEnemy(deltaTime, playerMesh, playerVel); // <<< PASS playerState.velocity
+        } else if (getEnemyState().mesh && playerMesh) {
+            // Log if enemy exists but velocity is missing (shouldn't happen after init)
+            console.warn("[Animate Loop] Enemy exists but player velocity is invalid. Skipping enemy update.");
+        }
+    // ... existing code ...
 } 

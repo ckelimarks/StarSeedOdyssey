@@ -450,7 +450,7 @@ function updateRocket(deltaTime) {
         // if (rocketFlameLight) rocketFlameLight.intensity = 0; // Turn light off // <<< MOVED TO stopRocketEffects
         stopRocketEffects(); // <<< NEW: Call stop function
         // -----------------------------------------
-
+        
         if (!impactSoundPlayedThisTrip) {
              console.log("Playing impact sound on immediate arrival (short trip).");
              playImpactSound();

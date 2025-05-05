@@ -41,6 +41,7 @@ const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // <<< NEW: Added for music fade l
 const loader = new GLTFLoader();
 let homePlanetRef = null;
 let planetsStateRef = null; // <<< ADD module-level variable
+let enemyAudioListenerRef = null; // <<< NEW: Store audio listener
 
 // --- Enemy State ---
 let enemyState = {
@@ -82,6 +83,7 @@ let enemyState = {
     // --- Deactivation Node State ---
     deactivationNodes: [], // Array to store { mesh, mixer, isActivated, activationProgress }
     activationTimers: {}, // Map: nodeInstanceId -> timer
+    nodeToEnemyLines: [], // <<< ADD BACK: Initialize as empty array
 };
 // ------------------
 
@@ -192,9 +194,10 @@ function isPlayerInSpotlight(playerMesh) {
  * @param {THREE.Scene} scene - The main scene.
  * @param {THREE.Object3D} homePlanet - The object to attach the enemy to.
  * @param {object} planetsData - The planetsState object from main.js <<< ADD parameter
+ * @param {THREE.AudioListener} audioListener - The main audio listener <<< NEW parameter
  * @returns {object} The enemy state object.
  */
-export function initEnemy(scene, homePlanet, planetsData) { // <<< ADD parameter
+export function initEnemy(scene, homePlanet, planetsData, audioListener) { // <<< ADD audioListener parameter
     console.log("Enemy INIT: Initializing...");
     if (!homePlanet || !homePlanet.geometry || !homePlanet.geometry.parameters) {
         console.error("Enemy INIT Error: Valid homePlanet object is required.");
@@ -204,8 +207,13 @@ export function initEnemy(scene, homePlanet, planetsData) { // <<< ADD parameter
         console.error("Enemy INIT Error: planetsData object is required.");
         return null;
     }
+    if (!audioListener) { // <<< NEW check
+        console.error("Enemy INIT Error: audioListener is required.");
+        return null;
+    }
     homePlanetRef = homePlanet; // Store reference
     planetsStateRef = planetsData; // <<< Store reference
+    enemyAudioListenerRef = audioListener; // <<< NEW: Store listener reference
 
     loader.load(
         'models/spider_bot/scene.gltf',
@@ -448,10 +456,13 @@ export function initEnemy(scene, homePlanet, planetsData) { // <<< ADD parameter
  * @param {number} deltaTime Time since last frame.
  * @param {THREE.Object3D | null} playerMesh The player's mesh object (or null if not ready).
  */
-export function updateEnemy(deltaTime, playerMesh) { 
-    if (!enemyState.isInitialized || !enemyState.mesh || !homePlanetRef) {
+export function updateEnemy(deltaTime, playerMesh, playerVelocity) { // <<< Signature includes playerVelocity
+    if (!enemyState.isInitialized || !enemyState.mesh || !homePlanetRef || !playerMesh || !planetsStateRef) {
         return; // Exit if enemy not ready
     }
+    
+    const now = performance.now(); // <<< ADD BACK: Get current time for shader uniforms
+
     if (!playerMesh && enemyState.currentState === EnemyAIState.HUNTING) {
         // If hunting but player disappears, maybe revert to patrol?
         console.warn("Enemy is HUNTING but playerMesh is null. Reverting to PATROLLING.");
@@ -905,7 +916,6 @@ export function updateEnemy(deltaTime, playerMesh) {
                 // <<< Spawn Nodes on Wake Up >>>
                 spawnDeactivationNodes();
                 
-                break;
             }
             break;
         // ------------------------
@@ -1073,14 +1083,39 @@ export function updateEnemy(deltaTime, playerMesh) {
     }
     // -------------------------------------
 
-    // --- Update Node Logic (If Nodes Exist) --- // <<< NEW SECTION
+    // --- Update Node Logic (If Nodes Exist) --- // <<< EXISTING SECTION
     if (enemyState.deactivationNodes.length > 0) {
         let allNodesActivated = true; // Assume true initially
 
         enemyState.deactivationNodes.forEach(nodeData => {
+            // <<< ADD Ripple Shader Time Update >>>
+            if (nodeData.indicatorCircle && nodeData.indicatorCircle.material.uniforms?.uTime) {
+                nodeData.indicatorCircle.material.uniforms.uTime.value = now * 0.001; // Convert ms to s
+                console.log(`[Ripple Update] Node ${nodeData.id} uTime updated to: ${nodeData.indicatorCircle.material.uniforms.uTime.value.toFixed(3)}`); // <<< ADD LOG
+            } else if (nodeData.indicatorCircle) {
+                // console.warn(`[Ripple Debug] Node ${nodeData.id} has indicatorCircle but no uTime uniform?`);
+            }
+            // <<< END Ripple Update >>>
+
             if (!nodeData.mesh || nodeData.isActivated) {
-                if (!nodeData.isActivated) allNodesActivated = false; // Still mark false if node mesh is missing but required
-                return; // Skip processed or broken nodes
+                 // ... logic for activated/missing nodes ...
+                  // <<< Make sure ripple is removed if node is activated >>>
+                  if (nodeData.isActivated && nodeData.indicatorCircle) {
+                       // <<< ADD Proper Removal/Disposal >>>
+                       if (nodeData.indicatorCircle.parent) {
+                           nodeData.indicatorCircle.parent.remove(nodeData.indicatorCircle);
+                       }
+                       if (nodeData.indicatorCircle.geometry) {
+                           nodeData.indicatorCircle.geometry.dispose();
+                       }
+                       if (nodeData.indicatorCircle.material) {
+                           nodeData.indicatorCircle.material.dispose(); // Dispose shader material
+                       }
+                       // <<< END Removal/Disposal >>>
+                       nodeData.indicatorCircle = null; // Clear reference
+                  }
+                  // <<< END Ripple Removal on Activation >>>
+                 return; 
             }
 
             allNodesActivated = false; // Found an inactive node
@@ -1131,17 +1166,29 @@ export function updateEnemy(deltaTime, playerMesh) {
                               }
                          });
                         // ---------------------------------------------------------------------------
-                        // TODO: Play activation sound
-                        /* // <<< REMOVE Sound Playback Here >>>
-                        if (window.loadedSounds?.deactivateNodeSound) {
-                            if(window.loadedSounds.deactivateNodeSound.isPlaying) {
-                                window.loadedSounds.deactivateNodeSound.stop(); // Stop if somehow playing
-                            }
-                            window.loadedSounds.deactivateNodeSound.play();
-                        } else {
-                            console.warn("[SOUND] Deactivate node sound not loaded.");
+                        // <<< Stop the looping spawn sound for THIS node >>>
+                        if (nodeData.spawnSound && nodeData.spawnSound.isPlaying) {
+                            nodeData.spawnSound.stop();
+                            console.log(`[Node Sound] Stopped spawn sound for activated node ${nodeData.id}`);
                         }
-                        */ // <<< END REMOVE Sound Playback >>>
+                        // <<< END Stop Spawn Sound >>>
+                        
+                        // <<< Play the Single Activation Sound >>>
+                        const singleActivationSoundBuffer = window.loadedSounds?.nodeActivateSingleSound?.buffer;
+                        if (singleActivationSoundBuffer && enemyAudioListenerRef) {
+                            const singleSoundInstance = new THREE.PositionalAudio(enemyAudioListenerRef);
+                            singleSoundInstance.setBuffer(singleActivationSoundBuffer);
+                            // Copy settings from prototype if needed (e.g., refDistance, rolloff)
+                            singleSoundInstance.setRefDistance(10); 
+                            singleSoundInstance.setRolloffFactor(1.0);
+                            nodeData.mesh.add(singleSoundInstance); // Attach to the node mesh
+                            singleSoundInstance.play();
+                            console.log(`[Node Sound] Played single activation sound for node ${nodeData.id}`);
+                            // No need to store reference, it's non-looping
+                        } else {
+                            console.warn(`[Node Sound] Single activation sound buffer or listener missing for node ${nodeData.id}`);
+                        }
+                        // <<< END Play Single Activation Sound >>>
                     }
                 } else {
                     // Player moved away, reset timer and visual progress
@@ -1212,11 +1259,17 @@ export function updateEnemy(deltaTime, playerMesh) {
              enemyState.isFadingToAwakeMusic = false;
         }
     }
-    // --- END NEW NODE LOGIC ---
+    // --- END NODE LOGIC ---
 
-    // --- Clamp Position & Update Orientation ---
-    // ... existing code ...
-} 
+    // --- Update Node-to-Enemy Connection Lines --- <<< NEW SECTION FOR LOGS
+    console.log("[Enemy Lines Debug] Checking if lines should be updated..."); // <<< ADD LOG
+    if (enemyState.deactivationNodes.length > 0 && enemyState.mesh) {
+        // const finalLocalPos = enemyState.mesh.position; // <<< ALREADY CALCULATED ABOVE
+        console.log(`[Enemy Lines Debug] Calling updateNodeToEnemyLines with enemy local pos: ${JSON.stringify(finalLocalPos)}`); // <<< ADD LOG
+        updateNodeToEnemyLines(finalLocalPos); // Pass enemy's local pos
+    }
+    // ---------------------------------------------
+}
 
 function getFibonacciPatrolPoint(planetRadius) {
     // Implement Fibonacci lattice patrol logic here
@@ -1226,8 +1279,15 @@ function getFibonacciPatrolPoint(planetRadius) {
 
 // <<< NEW FUNCTION: Spawn Deactivation Nodes >>>
 function spawnDeactivationNodes() {
-    if (!homePlanetRef || !techApertureModelProto) {
-        console.error("Cannot spawn nodes: Missing home planet reference or node model prototype.");
+    // <<< ADD Prerequisite Logs >>>
+    console.log("[Node Spawn] Attempting to spawn nodes...");
+    console.log(`[Node Spawn] Prerequisite Check: homePlanetRef valid? ${!!homePlanetRef}`);
+    console.log(`[Node Spawn] Prerequisite Check: techApertureModelProto loaded? ${!!techApertureModelProto}`);
+    console.log(`[Node Spawn] Prerequisite Check: planetsStateRef valid? ${!!planetsStateRef}`); // Added planetsState check
+    // <<< END Prerequisite Logs >>>
+
+    if (!homePlanetRef || !techApertureModelProto || !planetsStateRef) { // Added planetsState check
+        console.error("Cannot spawn nodes: Missing prerequisite(s). Check logs above.");
         return;
     }
     console.log(`[Nodes] Spawning ${NODES_REQUIRED} deactivation nodes (forced random positions)...`);
@@ -1280,20 +1340,42 @@ function spawnDeactivationNodes() {
         const nodeMesh = techApertureModelProto.clone(true);
         nodeMesh.scale.set(nodeScale, nodeScale, nodeScale);
 
-        // --- Animation Setup ---
+        // <<< Attach Node Spawn Loop Sound >>>
+        let nodeSpawnSoundInstance = null; 
+        const nodeSpawnSoundBuffer = window.loadedSounds?.nodeSpawnLoopSound?.buffer;
+        if (nodeSpawnSoundBuffer && enemyAudioListenerRef) { // Check buffer AND listener ref
+             // <<< Create NEW instance instead of cloning >>>
+             nodeSpawnSoundInstance = new THREE.PositionalAudio(enemyAudioListenerRef);
+             nodeSpawnSoundInstance.setBuffer(nodeSpawnSoundBuffer);
+             // Copy settings from prototype (adjust if needed)
+             nodeSpawnSoundInstance.setLoop(true); 
+             nodeSpawnSoundInstance.setRefDistance(10); 
+             nodeSpawnSoundInstance.setRolloffFactor(1.0);
+             // --------------------------------------------
+             nodeMesh.add(nodeSpawnSoundInstance); 
+              if (!nodeSpawnSoundInstance.isPlaying) {
+                  nodeSpawnSoundInstance.play();
+              }
+              console.log(`[Node Sound] Attached and playing spawn sound for node ${i + 1}`);
+         } else {
+             console.warn(`[Node Sound] Node spawn loop sound buffer or listener missing for node ${i + 1}`);
+         }
+         // <<< END Attach Node Spawn Loop Sound >>>
+
+        // <<< ADD Animation Setup Back >>>
         let nodeMixer = null;
         if (techApertureModelAnimations && techApertureModelAnimations.length > 0) {
             nodeMixer = new THREE.AnimationMixer(nodeMesh);
             const clip = techApertureModelAnimations[0]; 
-            // console.log(`[Node Anim Debug] Node ${i+1}: Playing clip '${clip.name}' (Duration: ${clip.duration.toFixed(2)}s)`); // <<< REMOVE Log clip info
             const action = nodeMixer.clipAction(clip);
-            action.setLoop(THREE.LoopPingPong); // <<< SET Loop Mode to PingPong
+            action.setLoop(THREE.LoopPingPong); // Ensure PingPong loop is set
             action.play();
+            console.log(`[Node Anim] Setup animation '${clip.name}' for node ${i + 1}`);
         } else {
-            console.warn("[Nodes] Tech Aperture model has no animations.");
+            console.warn("[Node Anim] Tech Aperture model has no animations to play.");
         }
-        // ----------------------
-
+        // <<< END Animation Setup >>>
+        
         // --- Position and Align using LOCAL Coordinates ---
         // 1. Calculate LOCAL surface normal (direction from planet center to the local surface point)
         const localSurfaceNormal = _vector3.copy(randomLocalSurfacePos).normalize(); 
@@ -1325,13 +1407,98 @@ function spawnDeactivationNodes() {
         }
         // <<< END BoxHelper >>>
 
+        // --- Create RIPPLE effect for this node --- <<< MOVED DEFINITIONS INSIDE LOOP
+        const rippleRadius = 4.0; 
+        const rippleGeometry = new THREE.CircleGeometry(rippleRadius, 64); // Define GEOMETRY here
+        
+        // Define SHADERS here (can reuse constants if defined outside loop)
+        const rippleVertexShader = `
+          varying vec2 vUv;
+          uniform float uTime;
+          uniform float uFrequency;
+          uniform float uAmplitude;
+
+          void main() {
+            vUv = uv;
+            vec3 pos = position;
+            
+            float dist = distance(vUv, vec2(0.5)); 
+            float sineFactor = sin(dist * uFrequency - uTime * 5.0); // <<< Faster time multiplier
+            float displacement = sineFactor * uAmplitude * smoothstep(0.1, 0.45, dist) * (1.0 - smoothstep(0.45, 0.5, dist));
+            pos.z += displacement;
+
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+          }
+        `;
+        const rippleFragmentShader = `
+          varying vec2 vUv;
+          uniform float uTime;
+          uniform vec3 uColor;
+          uniform float uFrequency;
+
+          void main() {
+            float dist = distance(vUv, vec2(0.5));
+            float sineFactor = sin(dist * uFrequency - uTime * 5.0); // <<< Faster time multiplier
+            float pulseFactor = 0.5 + 0.5 * sineFactor; // Remap sine to [0, 1] range
+            
+            // Fade out alpha towards the edge
+            float edgeAlpha = smoothstep(0.5, 0.4, dist);
+            
+            // Modulate alpha by the pulse factor for transparency in valleys
+            float finalAlpha = edgeAlpha * pulseFactor; 
+            
+            // Keep the intensity calculation for brightness variation
+            float intensity = 0.1 + 0.9 * pulseFactor; // <<< Wider contrast range [0.1, 1.0]
+            
+            gl_FragColor = vec4(uColor * intensity, finalAlpha); // Use finalAlpha
+          }
+        `;
+        
+        // <<< Define Uniforms Object Separately >>>
+        const rippleUniforms = {
+            uTime: { value: 0.0 },
+            uColor: { value: new THREE.Color(0x0055ff) }, // Blue base color
+            uFrequency: { value: 8.0 }, // <<< Lower frequency for bigger gap
+            uAmplitude: { value: 0.3 }  // <<< Increase amplitude for more displacement
+        };
+        
+        const rippleMaterial = new THREE.ShaderMaterial({ // Define MATERIAL here
+            vertexShader: rippleVertexShader,
+            fragmentShader: rippleFragmentShader,
+            uniforms: rippleUniforms, // <<< Use the separate object
+            transparent: true,
+            side: THREE.DoubleSide,
+            depthWrite: true // <<< CHANGE to true
+        });
+
+        // Now create the Mesh using the defined geometry and material
+        const indicatorCircle = new THREE.Mesh(rippleGeometry, rippleMaterial);
+        indicatorCircle.name = `node_ripple_${i}`;
+        console.log(`[Nodes Debug] Created indicatorCircle (ripple mesh) for node ${i+1}`); // Log remains valid
+
+        // Rotation logic
+        const circleNormal = new THREE.Vector3(0, 0, 1);
+        const circleAlignQuat = new THREE.Quaternion().setFromUnitVectors(circleNormal, localSurfaceNormal);
+        indicatorCircle.quaternion.copy(circleAlignQuat);
+
+        // Positioning logic
+        const CIRCLE_VERTICAL_OFFSET = 0.8; // <<< Adjust offset to be between previous values
+        const circlePosition = finalLocalPos.clone().addScaledVector(localSurfaceNormal, CIRCLE_VERTICAL_OFFSET);
+        indicatorCircle.position.copy(circlePosition);
+
+        homePlanetRef.add(indicatorCircle); // Add ripple mesh to planet
+        // --- END RIPPLE Creation ---
+
         // Add node data to state
         enemyState.deactivationNodes.push({
-            id: nodeMesh.uuid, // Use UUID as a unique identifier
+            id: nodeMesh.uuid, 
             mesh: nodeMesh,
-            mixer: nodeMixer,
+            indicatorCircle: indicatorCircle, // Store ripple mesh reference
+            mixer: nodeMixer, 
+            spawnSound: nodeSpawnSoundInstance, 
             isActivated: false,
-            activationProgress: 0 // For potential visual feedback
+            activationProgress: 0.0, 
+            beingActivated: false 
         });
         enemyState.activationTimers[nodeMesh.uuid] = 0; // Initialize timer
     }
@@ -1352,8 +1519,9 @@ function despawnDeactivationNodes() {
         }
         // <<< END REMOVE BoxHelper >>>
 
-        if (nodeData.mixer) {
-            nodeData.mixer.stopAllAction(); // Stop animations
+        if (nodeData.spawnSound && nodeData.spawnSound.isPlaying) {
+            nodeData.spawnSound.stop();
+            console.log(`[Node Sound] Stopped spawn sound for node ${nodeData.id}`);
         }
         if (nodeData.mesh && nodeData.mesh.parent) {
             nodeData.mesh.parent.remove(nodeData.mesh); // Remove from scene
@@ -1372,4 +1540,145 @@ function despawnDeactivationNodes() {
     });
     enemyState.deactivationNodes = []; // Clear the array
     enemyState.activationTimers = {}; // Clear timers
+} 
+
+// <<< ADD BACK MISSING FUNCTION >>>
+/**
+ * Removes all existing node-to-enemy connection lines from the scene and disposes their geometry.
+ */
+function removeAllNodeLines() {
+    if (enemyState.nodeToEnemyLines.length === 0) return;
+
+    // console.log(`[Enemy Lines Debug] Removing ${enemyState.nodeToEnemyLines.length} old lines.`); // Optional log
+    enemyState.nodeToEnemyLines.forEach(line => {
+        if (line.parent) {
+            line.parent.remove(line);
+        }
+        if (line.geometry) {
+            line.geometry.dispose();
+        }
+        // Material is shared, so we don't dispose it here
+    });
+    enemyState.nodeToEnemyLines = []; // Clear the array
+}
+// <<< END ADD BACK >>>
+
+// <<< NEW DYNAMIC LINE FUNCTION >>>
+function updateNodeToEnemyLines(enemyLocalPos) {
+    console.log("[Enemy Lines Debug] updateNodeToEnemyLines called."); // <<< ADD LOG
+    removeAllNodeLines(); // Clear previous lines first
+
+    if (enemyState.deactivationNodes.length === 0 || !homePlanetRef || !enemyLocalPos) {
+        console.log(`[Enemy Lines Debug] Skipping line creation (Nodes: ${enemyState.deactivationNodes.length}, Planet: ${!!homePlanetRef}, EnemyPos: ${!!enemyLocalPos})`); // <<< ADD LOG
+        return; // No nodes, planet, or enemy position to draw to
+    }
+
+    // <<< ADD BACK Line Material Definition >>>
+    const lineMaterial = new THREE.LineDashedMaterial({ // Shared material
+        color: 0x0055ff, // Blue
+        linewidth: 2, // Thinner dashed lines
+        scale: 1,
+        dashSize: 0.5, // Smaller dashes
+        gapSize: 0.3,  // Smaller gaps
+        depthTest: true // Render on top <<< CHANGE TO TRUE
+    });
+    // <<< END ADD BACK >>>
+
+    console.log(`[Enemy Lines Debug] Looping through ${enemyState.deactivationNodes.length} nodes to create lines.`); // <<< ADD LOG
+    enemyState.deactivationNodes.forEach(nodeData => {
+        if (!nodeData.mesh || nodeData.isActivated) {
+            console.log(`[Enemy Lines Debug] Skipping line for node ${nodeData.id} (Mesh: ${!!nodeData.mesh}, Activated: ${nodeData.isActivated})`); // <<< ADD LOG
+            return; // Skip inactive or broken nodes
+        }
+
+        // --- START Arc Calculation ---
+        const nodeLocalPos = nodeData.mesh.position;
+        const startDir = nodeLocalPos.clone().normalize();
+        const endDir = enemyLocalPos.clone().normalize();
+
+        // Calculate the angle between the vectors
+        const angle = startDir.angleTo(endDir);
+
+        const arcPointsLocal = []; // Make sure this is initialized here
+
+        if (Math.abs(angle) < 0.001 || Math.abs(angle - Math.PI) < 0.001) {
+            // Vectors are collinear or anti-parallel, create a simple straight line
+            // (This case might need refinement depending on desired visual)
+            arcPointsLocal.push(nodeLocalPos.clone());
+            arcPointsLocal.push(enemyLocalPos.clone());
+            console.warn(`[Enemy Lines Debug] Node ${nodeData.id}: Using straight line due to near collinear points.`);
+        } else {
+            // Calculate the rotation axis (cross product)
+            const axis = new THREE.Vector3().crossVectors(startDir, endDir).normalize();
+
+            // Define the number of segments for the arc
+            const segments = 20; // Adjust for smoothness
+            const planetRadius = homePlanetRef.geometry.parameters.radius;
+            const LINE_VERTICAL_OFFSET = 1.5; // <<< Define offset height
+
+            // Generate points along the arc using Quaternion rotation
+            const q = new THREE.Quaternion();
+            arcPointsLocal.push(nodeLocalPos.clone()); // <<< Start with actual node position
+            for (let i = 1; i < segments; i++) { // <<< Loop from 1 to segments-1
+                const t = i / segments; // Interpolation factor (0 to 1)
+                q.setFromAxisAngle(axis, angle * t); // Rotate by fraction of angle
+
+                // Rotate the start direction vector
+                const pointDir = startDir.clone().applyQuaternion(q);
+                const surfaceNormal = pointDir.clone(); // Normalized direction is the normal
+
+                // Scale back to planet radius to get position on surface
+                const pointOnSurface = pointDir.multiplyScalar(planetRadius);
+                const finalPoint = pointOnSurface.addScaledVector(surfaceNormal, LINE_VERTICAL_OFFSET); // <<< Add offset
+                arcPointsLocal.push(finalPoint);
+            }
+            arcPointsLocal.push(enemyLocalPos.clone()); // <<< End with actual enemy position
+        }
+        // --- END Arc Calculation ---
+
+        // <<< ADD Log to check calculated points >>>
+        console.log(`[Enemy Lines Debug] Node ${nodeData.id}: Calculated ${arcPointsLocal.length} points for arc.`);
+        if (arcPointsLocal.length > 0) {
+            // Optionally log first/last point for sanity check (can be verbose)
+            // console.log(`  Start: ${JSON.stringify(arcPointsLocal[0])}, End: ${JSON.stringify(arcPointsLocal[arcPointsLocal.length - 1])}`);
+        } else {
+             console.warn(`[Enemy Lines Debug] Node ${nodeData.id}: arcPointsLocal is EMPTY!`);
+        }
+        // <<< END Log >>>
+
+        try { // Wrap geometry/line creation in try...catch
+            // <<< ADD BACK: Create BufferGeometry directly from the calculated points >>>
+            const lineGeometry = new THREE.BufferGeometry().setFromPoints(arcPointsLocal);
+            
+            // --- Manual line distance calculation --- 
+            const positions = lineGeometry.attributes.position.array;
+            const count = lineGeometry.attributes.position.count; // Use count property
+            const distances = [];
+            distances[0] = 0;
+            for (let i = 1; i < count; i++) {
+                const x1 = positions[(i - 1) * 3];
+                const y1 = positions[(i - 1) * 3 + 1];
+                const z1 = positions[(i - 1) * 3 + 2];
+                const x2 = positions[i * 3];
+                const y2 = positions[i * 3 + 1];
+                const z2 = positions[i * 3 + 2];
+                distances[i] = distances[i - 1] + Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2) + Math.pow(z2 - z1, 2));
+            }
+            lineGeometry.setAttribute('lineDistance', new THREE.BufferAttribute(new Float32Array(distances), 1));
+            // --- END Manual Calculation ---
+
+            // Create the THREE.Line object
+            const line = new THREE.Line(lineGeometry, lineMaterial);
+            line.computeLineDistances(); 
+            line.frustumCulled = false; 
+
+            // Add line to scene and state
+            homePlanetRef.add(line);
+            enemyState.nodeToEnemyLines.push(line); // Store reference
+            console.log(`[Enemy Lines Debug] Successfully created and added line for node ${nodeData.id}`); // <<< ADD LOG
+
+        } catch (error) {
+            console.error(`[Nodes Line Error] Failed to create line for node ${nodeData.id}:`, error);
+        }
+    });
 } 

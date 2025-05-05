@@ -494,6 +494,13 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
                 if (child.isMesh) {
                     child.castShadow = true;
                     child.receiveShadow = true;
+                    // <<< ADD Transparency Settings >>>
+                    if (child.material) {
+                        child.material.transparent = true;
+                        child.material.opacity = 0.85; // <<< SET to 0.15 (85% transparent)
+                        child.material.needsUpdate = true; // Ensure changes apply
+                    }
+                    // <<< END Transparency Settings >>>
                 }
             });
 
@@ -1275,7 +1282,7 @@ function loadAudio(listener) {
         audioListenerRef = listener; 
         const loader = new THREE.AudioLoader();
         let soundsLoaded = 0;
-        let totalSoundsToLoad = 22; // <<< Increment count
+        let totalSoundsToLoad = 25; // <<< Increment count to 25
         const loadedSounds = {}; 
 
         const checkAllLoaded = () => {
@@ -1316,7 +1323,7 @@ function loadAudio(listener) {
                 fuelPickupSound1 = new THREE.Audio(audioListenerRef);
                 fuelPickupSound1.setBuffer(buffer);
                 fuelPickupSound1.setLoop(false);
-                fuelPickupSound1.setVolume(0.5);
+                fuelPickupSound1.setVolume(0.1);
                 loadedSounds.fuelPickupSound = fuelPickupSound1; // Store reference
                 console.log("Fuel pickup sound loaded.");
                 checkAllLoaded();
@@ -1675,6 +1682,57 @@ function loadAudio(listener) {
             (err) => onError('sfx/deactivatenodesound.wav', err)
         );
         // --- END Load Node Deactivation Sound ---
+
+        // --- Load Node Spawn Loop Sound (NEW) ---
+        loader.load('sfx/nodesound.mp3', 
+            (buffer) => {
+                const nodeSpawnLoopSound = new THREE.PositionalAudio(audioListenerRef);
+                nodeSpawnLoopSound.setBuffer(buffer);
+                nodeSpawnLoopSound.setLoop(true); // Loop this one
+                nodeSpawnLoopSound.setRefDistance(10); 
+                nodeSpawnLoopSound.setRolloffFactor(1.0);
+                loadedSounds.nodeSpawnLoopSound = nodeSpawnLoopSound;
+                console.log("Node spawn loop sound loaded (Positional).");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/nodesound.mp3', err)
+        );
+        // --- END Load Node Spawn Loop Sound ---
+
+        // --- Load Node Proximity Loop Sound (NEW) ---
+        loader.load('sfx/enterNode.mp3', 
+            (buffer) => {
+                const nodeProximityLoopSound = new THREE.PositionalAudio(audioListenerRef);
+                nodeProximityLoopSound.setBuffer(buffer);
+                nodeProximityLoopSound.setLoop(true); // Loop this one
+                nodeProximityLoopSound.setRefDistance(10);
+                nodeProximityLoopSound.setRolloffFactor(1.0);
+                loadedSounds.nodeProximityLoopSound = nodeProximityLoopSound;
+                console.log("Node proximity loop sound loaded (Positional).");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/enterNode.mp3', err)
+        );
+        // --- END Load Node Proximity Loop Sound ---
+
+        // --- Load Single Node Activation Sound (NEW) ---
+        loader.load('sfx/deactivateNodeSingle.mp3', 
+            (buffer) => {
+                const nodeActivateSingleSound = new THREE.PositionalAudio(audioListenerRef);
+                nodeActivateSingleSound.setBuffer(buffer);
+                nodeActivateSingleSound.setLoop(false); // One-shot sound
+                nodeActivateSingleSound.setRefDistance(10);
+                nodeActivateSingleSound.setRolloffFactor(1.0);
+                loadedSounds.nodeActivateSingleSound = nodeActivateSingleSound;
+                console.log("Single node activation sound loaded (Positional).");
+                checkAllLoaded();
+            }, 
+            undefined, 
+            (err) => onError('sfx/deactivateNodeSingle.mp3', err)
+        );
+        // --- END Load Single Node Activation Sound ---
 
     }); // End of Promise wrapper
 }

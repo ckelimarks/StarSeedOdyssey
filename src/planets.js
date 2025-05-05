@@ -82,6 +82,10 @@ export function createSphere(radius, color, position, name, isHome = false) {
                 if (isHome) {
                     // Home planet: Use white to show original texture color
                     materialProps.color = 0xffffff; 
+                    // <<< DEBUG: Make home planet semi-transparent >>>
+                    // materialProps.transparent = true; // REMOVED DEBUG
+                    // materialProps.opacity = 0.5;    // REMOVED DEBUG
+                    // <<< END DEBUG >>>
                 } else {
                     // Other planets: Use config color to tint the texture
                     materialProps.color = color; 

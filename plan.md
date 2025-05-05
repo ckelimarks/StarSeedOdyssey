@@ -75,3 +75,41 @@ This phase focuses on simulating projectile motion under gravity.
 9.  **Trajectory Prediction & Assistance (Future Enhancements):**
     *   Consider adding a predicted trajectory line.
     *   Consider a computer assist feature for optimal launch windows.
+
+## Phase 3: Enemy & Node Mechanics
+
+This phase introduces an antagonist and an objective involving deactivation nodes.
+
+1.  **Enemy Setup & AI:**
+    *   **GLTF Loading:** Load the spider bot model (`models/spider_bot/scene.gltf`) and animations.
+    *   **Initialization:** Place the enemy on the home planet, aligned to the surface, near the player's start position.
+    *   **Spotlight:** Add a `SpotLight` as a child of the enemy model for detection, including emissive origin markers.
+    *   **AI States:** Implement a state machine (`PATROLLING`, `HUNTING`, `SCANNING`, `SLEEPING`).
+    *   **Patrol Logic:** Use Fibonacci lattice points for systematic patrolling on the planet surface.
+    *   **Detection & Hunting:** Use `isPlayerInSpotlight` check (distance, angle, sensitivity) to trigger `HUNTING` state. Target player with prediction error, give up after a timer.
+    *   **Scanning:** Implement random scanning behavior at patrol points.
+    *   **Sleeping:** Implement timed sleep periods (`PATROL_DURATION`, `SLEEP_DURATION`) where the enemy is inactive and nodes are despawned.
+    *   **Sound & Music:** Integrate positional movement/scanning sounds, detection sounds (roar/siren with cooldown), and music transitions (`playAppropriateMusic`) based on AI state (awake/danger vs asleep/normal).
+
+2.  **Deactivation Node System:**
+    *   **Model Loading:** Load the tech aperture model (`models/tech_aperture/scene.gltf`) and animations.
+    *   **Spawning (`spawnDeactivationNodes`):**
+        *   Spawn `NODES_REQUIRED` nodes on the home planet when the enemy wakes up.
+        *   Use `getRandomPositionOnPlanet` for initial placement.
+        *   Implement retry logic with distance (`MIN_NODE_DISTANCE`) and alignment (`MIN_NODE_ALIGNMENT_DOT_PRODUCT`) checks to ensure nodes are spread out and not directly opposite.
+        *   Attach looping spawn sound and animation (`LoopPingPong`).
+    *   **Visual Indicators:**
+        *   **Ripple Effect:** Add a `CircleGeometry` mesh with a custom `ShaderMaterial` (ripple shaders) below each node, offset slightly from the surface. Update `uTime` uniform for animation.
+        *   **Connection Lines (`updateNodeToEnemyLines`):** Draw dashed blue lines (`LineDashedMaterial`, `computeLineDistances` workaround) from each active node to the enemy's current position, updated each frame.
+    *   **Activation:**
+        *   Player must be within `NODE_INTERACTION_DISTANCE` for `NODE_ACTIVATION_DURATION`.
+        *   Track progress (`activationProgress`, `activationTimers`).
+        *   On activation: change node material emissive to green, stop spawn sound, play single activation sound, remove ripple effect.
+    *   **Despawning (`despawnDeactivationNodes`):**
+        *   Remove all nodes, ripples, and connection lines when the enemy goes to sleep or all nodes are activated.
+        *   Dispose of geometries and materials properly.
+
+3.  **Debugging & Refinement:**
+    *   Added temporary debug features like BoxHelpers and planet transparency.
+    *   Refactored line drawing logic (node-to-node -> node-to-enemy).
+    *   Adjusted visual parameters (ripple height, line offset, colors).

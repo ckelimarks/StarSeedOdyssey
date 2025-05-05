@@ -511,14 +511,14 @@ async function init() {
                      console.log("Main INIT: Started ambient sound.");
                  } else {
                      console.warn("Main INIT: Cannot start ambient sound - audio context not running.");
-                 }
+                 } 
             } else if (window.loadedSounds.ambientSound?.isPlaying) {
                  console.log("Main INIT: Ambient sound already playing?"); // Should not happen here
             } else {
                  console.warn("Main INIT: Ambient sound object or buffer not ready after loadAudio resolved?", window.loadedSounds.ambientSound);
             }
             // --------------------------
-
+            
             // --- Start Initial Music --- 
             // playAppropriateMusic(true); // Enemy starts awake, play danger theme // <<< OLD
             playAppropriateMusic(false); // Enemy starts asleep, play normal theme // <<< NEW
@@ -649,10 +649,9 @@ async function init() {
         window.playerState = initPlayer(scene, homePlanet, audioListener);
         console.log("Main INIT: Player initialized.");
 
-        // --- Step 5.5: Initialize Enemy --- <<< Pass planetsState >>>
-        enemyState = initEnemy(scene, homePlanet, planetsState);
+        // Initialize Enemy (Requires planet data)
+        enemyState = initEnemy(scene, homePlanet, planetsState, audioListener); // <<< Pass audioListener
         console.log("Main INIT: Enemy initialization requested.");
-        // ----------------------------------
 
         // --- Step 6: Initialize Rocket ---
         initRocket(scene, homePlanet);
@@ -1596,7 +1595,7 @@ function animate() {
     } else { // Default player following
         // Make sure playerState.mesh exists before calling updateCamera
         if (window.playerState?.mesh) {
-            updateCamera(camera, window.playerState.mesh, homePlanet);
+        updateCamera(camera, window.playerState.mesh, homePlanet);
         } else {
             // Optional: Handle camera position if player isn't ready (e.g., fixed view)
         }

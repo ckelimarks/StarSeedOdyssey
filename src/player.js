@@ -18,7 +18,7 @@ import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GL
 
 // Module-level variables for player state
 let playerSphere = null;
-let playerVelocity = new THREE.Vector3();
+// let playerVelocity = new THREE.Vector3(); // <<< REMOVE Unused module-level velocity
 const keyState = { 
     'ArrowUp': false, 
     'ArrowDown': false, 
@@ -113,7 +113,8 @@ function initPlayer(scene, homePlanet, audioListener) {
     
     // Define player state object early
     const playerState = {
-        mesh: null, // Will be set once model loaded
+        mesh: null, // Will be set once model loaded (This is the PARENT/ROOT object)
+        visualMesh: null, // <<< NEW: Reference to the visible GLTF mesh
         velocity: new THREE.Vector3(),
         targetLookDirection: new THREE.Vector3(0, 0, 1), // Initial forward (World Z for simplicity, will be corrected)
         isRollingSoundPlaying: false,
@@ -152,12 +153,12 @@ function initPlayer(scene, homePlanet, audioListener) {
             // -------------------------------------------------
 
             // --- Create Visual Model (playerMesh) ---
-            const playerMesh = playerModelProto.clone(true); // This is the visual model
-            playerMesh.scale.set(config.PLAYER_MODEL_SCALE, config.PLAYER_MODEL_SCALE, config.PLAYER_MODEL_SCALE);
-            // playerMesh.name = 'player'; // Keep name on parent for clarity?
+            const visualMesh = playerModelProto.clone(true); // <<< Use different variable name
+            visualMesh.scale.set(config.PLAYER_MODEL_SCALE, config.PLAYER_MODEL_SCALE, config.PLAYER_MODEL_SCALE);
+            // visualMesh.name = 'playerVisual'; // Optional name change
 
             // Ensure shadows on visual model
-            playerMesh.traverse((child) => {
+            visualMesh.traverse((child) => {
                 if (child.isMesh) {
                     child.castShadow = true;
                     child.receiveShadow = true;
@@ -166,11 +167,11 @@ function initPlayer(scene, homePlanet, audioListener) {
             // ----------------------------------------
 
             // --- Apply Visual Offset to CHILD mesh ---
-            playerMesh.translateY(-0.5); // Reduced offset from -1.2 to bring player up slightly
+            visualMesh.translateY(-0.5); // Apply offset to visual mesh
             // ----------------------------------------
 
             // --- Add Child to Parent ---
-            playerRoot.add(playerMesh); // Add visual model to the physics root
+            playerRoot.add(visualMesh); // Add visual model to the physics root
             // --------------------------
 
             // --- Apply Initial Orientation to PARENT ---
@@ -212,8 +213,9 @@ function initPlayer(scene, homePlanet, audioListener) {
             // --- Add Parent to Scene ---
             homePlanet.add(playerRoot); // Add the PARENT to the planet
             console.log('[DEBUG] playerRoot (parent) before assignment:', playerRoot);
-            playerState.mesh = playerRoot; // Assign PARENT to state
-            console.log('[DEBUG] playerState after PARENT mesh assignment:', playerState);
+            playerState.mesh = playerRoot; // Assign PARENT to state.mesh
+            playerState.visualMesh = visualMesh; // <<< ASSIGN visual mesh to state.visualMesh
+            console.log('[DEBUG] playerState after PARENT and VISUAL mesh assignment:', playerState);
             console.log(`Player INIT: Player root added as child of ${homePlanet.name}`);
             // -------------------------
 
@@ -228,8 +230,8 @@ function initPlayer(scene, homePlanet, audioListener) {
             
             console.log("Player INIT: Set initial orientation on PARENT and applied flip.");
 
-            // Initialize Path Trail using PARENT object
-            initializePathTrail(homePlanet, playerRoot); // Pass the PARENT
+            // Initialize Path Trail using PARENT object AND VISUAL MESH REFERENCE
+            initializePathTrail(homePlanet, playerState); // <<< Pass the whole state object
 
             // --- NEW: Initialize Boost Trail --- 
             const trailGeo = new THREE.BufferGeometry();
@@ -248,9 +250,8 @@ function initPlayer(scene, homePlanet, audioListener) {
             // --- END NEW Boost Trail Init ---
 
             // --- NEW: Initialize Speech Bubble ---
-            // Ensure player mesh exists before trying to attach
-            if (playerState.mesh) {
-                 initSpeechBubble(playerState.mesh); // Attach to the visual mesh
+            if (playerState.mesh) { // Keep attaching to parent root for now
+                 initSpeechBubble(playerState.mesh); 
             } else {
                 console.error("Player INIT Error: Cannot initialize speech bubble, player mesh not found.");
             }
@@ -263,8 +264,9 @@ function initPlayer(scene, homePlanet, audioListener) {
             // Maybe fallback to sphere?
             console.log("Player INIT: Falling back to sphere geometry due to load error.");
             playerState.mesh = createSphere(config.PLAYER_RADIUS, 0xff0000, playerLocalPosition, 'player_fallback');
+            playerState.visualMesh = playerState.mesh; // Fallback uses same mesh for both
             homePlanet.add(playerState.mesh);
-            initializePathTrail(homePlanet, playerState.mesh);
+            initializePathTrail(homePlanet, playerState); // Pass state object for fallback
         }
     );
     // --- End Load Player Model ---
@@ -278,9 +280,9 @@ function initPlayer(scene, homePlanet, audioListener) {
 }
 
 // NEW: Separate function to initialize path trail
-function initializePathTrail(parentObject, playerMeshRef) {
-    if (!parentObject || !playerMeshRef) {
-        console.error("initializePathTrail: Missing parentObject or playerMeshRef");
+function initializePathTrail(parentObject, playerState) {
+    if (!parentObject || !playerState) {
+        console.error("initializePathTrail: Missing parentObject or playerState");
         return;
     }
     // --- Make sure pathLine/Material/Geometry are initialized before use ---
@@ -294,7 +296,7 @@ function initializePathTrail(parentObject, playerMeshRef) {
 
     // Get initial player position for first point
     const initialWorldPos = new THREE.Vector3();
-    playerMeshRef.getWorldPosition(initialWorldPos);
+    playerState.visualMesh.getWorldPosition(initialWorldPos);
     const initialLocalPos = parentObject.worldToLocal(initialWorldPos);
     pathPoints.length = 0; // Clear any previous points
     pathPoints.push(initialLocalPos.clone()); // Start with current position
@@ -781,9 +783,7 @@ export function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
     // ... existing camera update code ...
 
     // --- Update Path Trail ---
-    if (playerState.mesh) {
-        updatePathTrail(playerState.mesh, homePlanet);
-    }
+    updatePathTrail(playerState, homePlanet);
     // ------------------------
 
     // --- NEW: Speech Bubble Toggle Logic ---
@@ -808,12 +808,14 @@ export function updatePlayer(deltaTime, camera, homePlanet, planetsState) {
 }
 
 // Update Path Trail
-function updatePathTrail(playerMesh, homePlanet) {
-    // Add checks for initialized pathLine/Geometry (USING CORRECT VAR NAMES)
-    if (!playerMesh || !homePlanet || !pathLine || !pathGeometry) return; // CORRECT: Use pathLine and pathGeometry
+function updatePathTrail(playerState, homePlanet) {
+    // <<< Get visualMesh from playerState >>>
+    const visualMesh = playerState?.visualMesh;
+    // Add checks for initialized pathLine/Geometry AND visualMesh
+    if (!visualMesh || !homePlanet || !pathLine || !pathGeometry) return; 
 
-    // Get player's current world position
-    playerMesh.getWorldPosition(_playerWorldPos);
+    // Get VISUAL mesh's current world position
+    visualMesh.getWorldPosition(_playerWorldPos); 
 
     // Check distance from last point
     if (_playerWorldPos.distanceToSquared(lastPathTrailPosition) > PATH_TRAIL_MIN_DISTANCE_SQ) {
@@ -844,7 +846,7 @@ function updatePathTrail(playerMesh, homePlanet) {
 
         // Use the calculated slice of points (pointsToDraw)
         pathLine.geometry.setFromPoints(pointsToDraw); // Use the slice
-    pathLine.geometry.computeBoundingSphere();
+        pathLine.geometry.computeBoundingSphere();
         pathLine.computeLineDistances(); // Still needed for LineSegments
         pathTrailNeedsUpdate = false;
     }

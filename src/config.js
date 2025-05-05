@@ -178,7 +178,7 @@ export const PURPLE_TREE_SCALE = 0.7;
 export const NODES_REQUIRED = 3;
 export const NODE_ACTIVATION_DURATION = 2.0; // seconds to stand near node
 export const NODE_INTERACTION_DISTANCE = 5.0; // How close player needs to be
-export const MIN_NODE_DISTANCE = 0.0; // Minimum distance between nodes and from enemy spawn (Reduced from 40.0 for testing)
+export const MIN_NODE_DISTANCE = 20.0; // Minimum distance between nodes and from enemy spawn (Increased from 0.0)
 
 // --- Audio System Constants ---
 // ... existing code ...
