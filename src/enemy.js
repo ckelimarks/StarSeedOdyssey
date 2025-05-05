@@ -33,7 +33,7 @@ const HUNT_PREDICTION_ERROR_DISTANCE = 2.0; // <<< NEW: How much inaccuracy when
 const SPOTLIGHT_TRACKING_SPEED = 6.0; // <<< INCREASED AGAIN
 const DETECTION_SOUND_COOLDOWN = 3.0; // <<< NEW: Cooldown for roar/siren sounds
 const PATROL_DURATION = 45.0; // <<< ADJUSTED for testing
-const SLEEP_DURATION = 100.0;  // <<< CORRECTED VALUE & ADDED SEMICOLON
+const SLEEP_DURATION = 10.0;  // <<< CORRECTED VALUE & ADDED SEMICOLON
 const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // <<< NEW: Added for music fade logic
 // ------------------------
 
@@ -84,6 +84,10 @@ let enemyState = {
     deactivationNodes: [], // Array to store { mesh, mixer, isActivated, activationProgress }
     activationTimers: {}, // Map: nodeInstanceId -> timer
     nodeToEnemyLines: [], // <<< ADD BACK: Initialize as empty array
+    walkAction: null, // Added for walk animation
+    movementSound: null, // Added for movement sound
+    deactivateNodeSoundTemplate: null, // Added for node deactivation sound
+    roarSound: null, // Added for roar sound
 };
 // ------------------
 
@@ -752,16 +756,46 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
                 // --- Play Detection Sounds (with Cooldown) --- <<< MOVED & ADDED COOLDOWN
                 const nowSeconds = performance.now() / 1000;
                 if (nowSeconds - enemyState.lastDetectionSoundTime > DETECTION_SOUND_COOLDOWN) {
-                     if (window.loadedSounds?.enemyRoarSound && !window.loadedSounds.enemyRoarSound.isPlaying && window.loadedSounds.enemyRoarSound.context.state === 'running') {
-                         window.loadedSounds.enemyRoarSound.play();
+                     // <<< ADD Log >>>
+                     console.log(`[Enemy Sound Check] Cooldown passed. Roar exists: ${!!window.loadedSounds?.enemyRoarSound}, Roar playing: ${window.loadedSounds?.enemyRoarSound?.isPlaying}, Context: ${window.loadedSounds?.enemyRoarSound?.context?.state}`);
+                     // <<< END Log >>>
+                     
+                     // <<< REVERT: Play directly from window.loadedSounds >>>
+                     // if (enemyState.roarSound && !enemyState.roarSound.isPlaying && enemyState.roarSound.context.state === 'running') {
+                     const roarSound = window.loadedSounds?.enemyRoarSound; // Get sound reference
+                     if (roarSound && !roarSound.isPlaying && roarSound.context.state === 'running') {
+                         
+                         // <<< NEW: Attach sound to enemy mesh if not already attached >>>
+                         if (roarSound.parent !== enemyState.mesh) {
+                            console.log("[Enemy Sound Debug] Attaching roar sound to enemy mesh.");
+                            enemyState.mesh.add(roarSound); // Add sound as child of enemy
+                         }
+                         // <<< END Attach Logic >>>
+                         
+                         // enemyState.roarSound.play(); // Play attached sound
+                         // window.loadedSounds.enemyRoarSound.play(); // <<< Play global sound
+                         roarSound.play(); // <<< Play the sound (now potentially attached)
                          enemyState.lastDetectionSoundTime = nowSeconds; // Update time only when sounds actually play
                          console.log(`[Enemy Sound] Played Roar (Cooldown Active). Time: ${nowSeconds.toFixed(1)}`);
+                         
+                         // <<< ADD DISTANCE LOG >>>
+                         if(playerMesh) { 
+                            const enemyPos = _enemyWorldPos; // Use already calculated world pos
+                            const playerPos = _playerWorldPos; // Use already calculated world pos
+                            const distance = enemyPos.distanceTo(playerPos);
+                            console.log(`[Enemy Sound Debug] Distance player-enemy on roar: ${distance.toFixed(2)}`);
+                         }
+                         // <<< END DISTANCE LOG >>>
+
                      }
                      // Play siren slightly after roar or concurrently? Let's do concurrently for now.
                      if (window.loadedSounds?.alarmSirenSound && !window.loadedSounds.alarmSirenSound.isPlaying && window.loadedSounds.alarmSirenSound.context.state === 'running') {
                          window.loadedSounds.alarmSirenSound.play(); 
                          // No need to update timestamp again if roar already did
                          console.log(`[Enemy Sound] Played Siren (Cooldown Active). Time: ${nowSeconds.toFixed(1)}`);
+                         // <<< ADD Log: Check isPlaying state immediately after play() >>>
+                         console.log(`[Enemy Sound Debug] Siren isPlaying state immediately after play(): ${window.loadedSounds?.alarmSirenSound?.isPlaying}`);
+                         // <<< END Log >>>
                      }
                 } else {
                     // Optional log: console.log(`[Enemy Sound] Detection sound cooldown active. Remaining: ${(DETECTION_SOUND_COOLDOWN - (nowSeconds - enemyState.lastDetectionSoundTime)).toFixed(1)}s`);

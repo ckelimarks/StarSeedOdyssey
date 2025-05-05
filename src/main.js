@@ -530,24 +530,30 @@ async function init() {
             console.log("Main INIT: Audio loaded successfully.");
             
             // --- Start Ambient Sound --- (Moved after loading finishes)
+            // <<< FIX: Use window.loadedSounds reference >>>
+            // if (ambientSound && ambientSound.buffer && !ambientSound.isPlaying) { 
             if (window.loadedSounds.ambientSound && window.loadedSounds.ambientSound.buffer && !window.loadedSounds.ambientSound.isPlaying) {
+                 // if (ambientSound.context.state === 'running') {
                  if (window.loadedSounds.ambientSound.context.state === 'running') {
                      // <<< Assign global reference AFTER checking loadedSounds >>>
-                     ambientSound = window.loadedSounds.ambientSound; 
+                     // ambientSound = window.loadedSounds.ambientSound; // <<< REMOVE this redundant assignment? Keep for now maybe?
                      // <<< ADD Log before playing >>>
-                     console.log(`[Debug Init Ambient Start] Trying to play ambientSound. Exists: ${!!ambientSound}, Buffer: ${!!ambientSound?.buffer}`);
+                     // console.log(`[Debug Init Ambient Start] Trying to play ambientSound. Exists: ${!!ambientSound}, Buffer: ${!!ambientSound?.buffer}`);
+                     console.log(`[Debug Init Ambient Start] Trying to play ambientSound. Exists: ${!!window.loadedSounds.ambientSound}, Buffer: ${!!window.loadedSounds.ambientSound?.buffer}`);
                      // <<< END Log >>>
-                     ambientSound.play();
+                     // ambientSound.play();
+                     window.loadedSounds.ambientSound.play(); // <<< FIX: Play using window.loadedSounds
                      console.log("Main INIT: Started ambient sound.");
                  } else {
-                     console.warn("Main INIT: Cannot start ambient sound - audio context not running.");
-                 } 
+                    // console.warn("Main INIT: Cannot start ambient sound - AudioContext not running.");
+                    console.warn(`Main INIT: Cannot start ambient sound - AudioContext not running. State: ${window.loadedSounds.ambientSound.context.state}`); // <<< Improved Log
+                 }
             } else if (window.loadedSounds.ambientSound?.isPlaying) {
-                 console.log("Main INIT: Ambient sound already playing?"); // Should not happen here
+                 console.log("Main INIT: Ambient sound already playing.");
             } else {
                  console.warn("Main INIT: Ambient sound object or buffer not ready after loadAudio resolved?", window.loadedSounds.ambientSound);
             }
-            // --------------------------
+            // --------------------------------------------------------
             
             // --- Start Initial Music (Moved AFTER ambient sound attempt) --- 
             // playAppropriateMusic(false); // <<< REMOVE from here

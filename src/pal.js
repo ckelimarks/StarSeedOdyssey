@@ -11,6 +11,10 @@ import { // Import Pal Sound Functions (Simplified)
 // Module-level variables
 const loader = new GLTFLoader();
 
+// <<< ADD Declaration for Cooldown >>>
+let lastPalArrivalSoundTime = 0;
+// ----------------------------------
+
 const PAL_MOVE_SPEED = 5.0;
 const PAL_HOVER_HEIGHT = 1.5;
 const PAL_FOLLOW_DISTANCE = 5.0;
@@ -141,13 +145,22 @@ export function initPal(playerMesh, parentObject) {
             palMesh.position.copy(palFinalLocalPos);
             console.log(`Pal INIT: Clamped final position to surface.`);
 
-            // --- Attach Positional Sound to Pal Mesh ---
-            const sound = window.loadedSounds?.palMovementSound;
-            if (sound && palMesh) { // Use palMesh here
-                palMesh.add(sound);
-                console.log("[Pal Sound] Attached positional sound to pal mesh.");
+            // --- Attach Sounds --- 
+            // Movement Sound
+            if (window.loadedSounds?.palMovementSound?.buffer) {
+                palState.movementSound = window.loadedSounds.palMovementSound;
+                palState.mesh.add(palState.movementSound);
+                console.log("[Pal Sound] Attached movement sound to pal mesh.");
             } else {
-                console.warn("[Pal Sound] Could not attach sound in init - sound or mesh not ready?");
+                console.warn("[Pal Sound] Pal movement sound not found in loadedSounds.");
+            }
+            // Arrival Sound
+            if (window.loadedSounds?.palArrivalSound?.buffer) {
+                palState.arrivalSound = window.loadedSounds.palArrivalSound;
+                palState.mesh.add(palState.arrivalSound);
+                console.log("[Pal Sound] Attached arrival sound to pal mesh.");
+            } else {
+                console.warn("[Pal Sound] Pal arrival sound not found in loadedSounds.");
             }
             // -------------------------------------------
 
@@ -216,7 +229,15 @@ export function updatePal(deltaTime, playerMesh, homePlanet) {
     
     // --- Play Arrival Sound on Transition --- (NEW)
     if (palState.wasMovingTowardsPlayer && !shouldMoveTowardsPlayer) {
-        playPalArrivalSound(); 
+        // <<< FIX: Play attached arrival sound directly >>>
+        if (palState.arrivalSound && !palState.arrivalSound.isPlaying && palState.arrivalSound.context.state === 'running' && 
+            (now - lastPalArrivalSoundTime) / 1000 > config.PAL_ARRIVAL_SOUND_COOLDOWN) 
+        {
+            palState.arrivalSound.play();
+            lastPalArrivalSoundTime = now; // Update cooldown timestamp
+            console.log("[Pal Sound] Played attached arrival sound.");
+        }
+        // playPalArrivalSound(); // Call function from resources.js <<< REMOVE OLD CALL
     }
     // --------------------------------------
 

@@ -80,7 +80,7 @@ export const planetConfigs = [
         name: 'AquaPrime',
         radius: HOME_PLANET_RADIUS,
         color: 0x6699ff,
-        orbitalDistance: 300,
+        orbitalDistance: 800,
         orbitalSpeed: 0.0005,
         initialAngle: 0,
         isHome: true

@@ -90,6 +90,10 @@ let speechBubbleState = {
 let boostTrailPoints = [];
 let boostTrailMesh = null;
 
+// <<< ADD Flag for Audio Context Resume >>>
+let audioContextResumed = false;
+// -----------------------------------------
+
 // Initialize Player
 function initPlayer(scene, homePlanet, audioListener) {
     console.log("Player INIT: Creating player mesh...");
@@ -318,20 +322,32 @@ function initializePathTrail(parentObject, playerState) {
 // Event Handlers
 function handleKeyDown(event) {
     const key = event.key;
-    // Normalize 'L' to 'l'
-    const normalizedKey = (key === 'L') ? 'l' : key;
+    keyState[key] = true;
+    console.log(`[DEBUG] KeyDown detected: ${event.key} (Normalized: ${key})`); // Debug log
 
-    // Use event.key for Shift detection (usually covers both Left and Right Shift)
-    // Check against the normalized key
-    if (key === 'Shift' || keyState.hasOwnProperty(normalizedKey)) { 
-        console.log(`[DEBUG] KeyDown detected: ${key} (Normalized: ${normalizedKey})`);
-        keyState[normalizedKey] = true; // Use normalized key
-        
-        // *** NEW: Resume Audio Context on first key press ***
-        if (audioListenerRef && audioListenerRef.context.state === 'suspended') {
+    // <<< ADD: Attempt to resume AudioContext on first key press >>>
+    if (!audioContextResumed && audioListenerRef?.context) { // Check flag and listener
+        if (audioListenerRef.context.state === 'suspended') {
             console.log("Resuming audio context...");
-            audioListenerRef.context.resume();
+            audioListenerRef.context.resume().then(() => {
+                console.log("AudioContext resumed successfully!");
+                audioContextResumed = true; // Set flag only on successful resume
+            }).catch(err => {
+                console.error("Error resuming AudioContext:", err);
+                // Keep flag false so we might retry on next key press?
+            });
+        } else {
+            // Context already running or in a different state, mark as handled
+            console.log(`AudioContext already in state: ${audioListenerRef.context.state}. Marking as resumed.`);
+            audioContextResumed = true; 
         }
+    }
+    // <<< END AudioContext Resume Logic >>>
+
+    // --- Handle Boost Input (Shift Key) --- 
+    if (key === 'Shift') {
+        console.log(`[DEBUG] Shift key detected.`);
+        keyState['Shift'] = true;
     }
 }
 

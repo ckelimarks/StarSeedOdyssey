@@ -83,7 +83,7 @@ const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // seconds <<< Reverted from 8.0 t
 // --------------------------------
 
 // --- Cooldown Tracking ---
-let lastPalArrivalSoundTime = 0;
+// let lastPalArrivalSoundTime = 0; // <<< REMOVE THIS LINE
 
 // Array to track collected seeds for regeneration
 const collectedSeedsQueue = [];
@@ -1304,7 +1304,7 @@ async function loadAudio(listener) { // <<< Mark as async
         { name: 'palArrivalSound', path: 'sfx/pal/yes.wav', volume: 0.8, loop: false, type: 'PositionalAudio', refDistance: config.PAL_SOUND_REF_DISTANCE, rolloffFactor: config.PAL_SOUND_ROLLOFF_FACTOR, log: 'Pal arrival sound loaded.' },
         { name: 'playerJumpSound', path: 'sfx/jump-sound.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Player jump sound loaded.' }, // Corrected path
         // { name: 'playerLandSound', path: 'sfx/land.mp3', volume: 0.5, loop: false, type: 'Audio', log: 'Player land sound loaded.' }, // File missing?
-        // { name: 'inventoryFullSound', path: 'sfx/inventory-full.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Inventory full sound loaded.' }, // File missing?
+        { name: 'inventoryFullSound', path: 'sfx/inventory-full.wav', volume: 0.6, loop: false, type: 'Audio', log: 'Inventory full sound loaded.' }, // <<< CORRECTED EXTENSION to .wav
         // { name: 'enemyScanningSound', path: 'sfx/enemy/enemy-scanning.mp3', volume: 0.7, loop: true, type: 'Audio', log: 'Enemy scanning sound loaded.' }, // File missing?
         { name: 'enemyRoarSound', path: 'sfx/enemyroar.mp3', volume: 0.9, loop: false, type: 'PositionalAudio', refDistance: 100, rolloffFactor: 1.2, log: 'Enemy roar sound loaded.' }, // Corrected path
         { name: 'terraformSuccessSound', path: 'sfx/terraformsucces.mp3', volume: 0.8, loop: false, type: 'Audio', log: 'Terraform success sound loaded.' }, // Corrected path (typo)
@@ -1314,12 +1314,14 @@ async function loadAudio(listener) { // <<< Mark as async
         // { name: 'enemyMovementSound', path: 'sfx/enemy/spider-steps.mp3', volume: 0.5, loop: true, type: 'PositionalAudio', refDistance: 70, rolloffFactor: 1.1, log: 'Enemy movement sound loaded (Positional).' }, // File missing? (maybe robottanksound.mp3?)
         { name: 'slowdownSound', path: 'sfx/slowdown.mp3', volume: config.SLOWDOWN_SOUND_BASE_VOLUME, loop: false, type: 'Audio', log: 'Slowdown sound loaded.' },
         { name: 'gameOverSound', path: 'sfx/GameOver.wav', volume: 0.7, loop: false, type: 'Audio', log: 'Game over sound loaded.' },
-        { name: 'alarmSirenSound', path: 'sfx/alarmsiren.mp3', volume: 0.6, loop: true, type: 'Audio', log: 'Alarm siren sound loaded.' }, // Corrected path
+        { name: 'alarmSirenSound', path: 'sfx/alarmsiren.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Alarm siren sound loaded.' }, // Corrected path & SET LOOP FALSE
         { name: 'nodeProximityLoopSound', path: 'sfx/enterNode.mp3', volume: 0.5, loop: true, type: 'PositionalAudio', refDistance: 40, rolloffFactor: 1.0, log: 'Node proximity loop sound loaded (Positional).' }, // Corrected path (assumed)
         { name: 'singleNodeActivationSound', path: 'sfx/deactivateNodeSingle.mp3', volume: 0.7, loop: false, type: 'PositionalAudio', refDistance: 50, rolloffFactor: 1, log: 'Single node activation sound loaded (Positional).' }, // Corrected path (assumed)
         { name: 'playerCollideSound', path: 'sfx/collidesound.mp3', volume: 0.8, loop: false, type: 'Audio', log: 'Player collide sound loaded.' },
         { name: 'themeMusicSound', path: 'sfx/StarSeedTheme.mp3', volume: 0.6, loop: true, type: 'Audio', log: 'Theme music loaded.' },
         { name: 'dangerMusicSound', path: 'sfx/DangerTheme.mp3', volume: 0.6, loop: true, type: 'Audio', log: 'Danger theme sound loaded.' },
+        // { name: 'inventoryFullSound', path: 'sfx/inventory-full.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Inventory full sound loaded.' }, // <<< UNCOMMENTED
+        // { name: 'enemyScanningSound', path: 'sfx/enemy/enemy-scanning.mp3', volume: 0.7, loop: true, type: 'Audio', log: 'Enemy scanning sound loaded.' }, // File missing?
     ];
 
     // <<< NEW: Map config to promises using loadAsync >>>
@@ -1385,7 +1387,7 @@ async function loadAudio(listener) { // <<< Mark as async
                     case 'palArrivalSound': palArrivalSound = sound; console.log(`[Debug LoadAudio] Assigned palArrivalSound: ${!!palArrivalSound}`); break;
                     case 'playerJumpSound': playerJumpSound = sound; break;
                     // case 'playerLandSound': playerLandSound = sound; break; // File missing
-                    // case 'inventoryFullSound': inventoryFullSound = sound; break; // File missing
+                    case 'inventoryFullSound': inventoryFullSound = sound; break; // <<< UNCOMMENTED
                     // case 'enemyScanningSound': enemyScanningSound = sound; break; // File missing
                     case 'enemyRoarSound': enemyRoarSound = sound; break;
                     case 'terraformSuccessSound': terraformSuccessSound = sound; break;
@@ -1408,6 +1410,12 @@ async function loadAudio(listener) { // <<< Mark as async
                 // Assign to the object returned by this function (still useful for window.loadedSounds)
                 loadedSounds[config.name] = sound; 
                 
+                // <<< ADD Specific Log for Inventory Full >>>
+                if (config.name === 'inventoryFullSound') {
+                    console.log(`[Debug LoadAudio Assign] Assigned inventoryFullSound to loadedSounds object. Sound object exists: ${!!sound}`);
+                }
+                // <<< END Specific Log >>>
+                
                 console.log(config.log); // Log success
             } else {
                 // Handle failed load (buffer is null)
@@ -1416,6 +1424,11 @@ async function loadAudio(listener) { // <<< Mark as async
                 loadedSounds[config.name] = null;
                 // We don't need to assign null to module variables as they start as null
                 console.warn(`Failed to load buffer for ${config.name} (${config.path}), sound set to null.`);
+                 // <<< ADD Specific Log for Inventory Full FAILURE >>>
+                 if (config.name === 'inventoryFullSound') {
+                    console.error(`[Debug LoadAudio Assign] FAILED to load buffer for inventoryFullSound.`);
+                 }
+                 // <<< END Specific Log >>>
             }
         });
         // <<< END Buffer processing logic >>>
