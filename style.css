@@ -140,4 +140,23 @@ body {
 /* Example: div containing boost meter */
 #boost-meter-container { /* Assuming an ID or use appropriate selector */
      z-index: 100;
-} 
+}
+
+/* --- Red Damage Flash Overlay --- */
+#damage-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(255, 0, 0, 0.4); /* Semi-transparent red */
+    opacity: 0;
+    pointer-events: none; /* Allow clicks through */
+    z-index: 999; /* Below game over, above most other UI */
+    transition: opacity 0.1s ease-out; /* Quick fade out */
+}
+
+#damage-overlay.visible {
+    opacity: 1; /* Fade in quickly */
+}
+/* ----------------------------- */ 

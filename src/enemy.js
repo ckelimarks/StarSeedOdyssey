@@ -33,7 +33,7 @@ const HUNT_PREDICTION_ERROR_DISTANCE = 2.0; // <<< NEW: How much inaccuracy when
 const SPOTLIGHT_TRACKING_SPEED = 6.0; // <<< INCREASED AGAIN
 const DETECTION_SOUND_COOLDOWN = 3.0; // <<< NEW: Cooldown for roar/siren sounds
 const PATROL_DURATION = 45.0; // <<< ADJUSTED for testing
-const SLEEP_DURATION = 10.0;  // <<< CORRECTED VALUE & ADDED SEMICOLON
+const SLEEP_DURATION = 120.0;  // <<< CORRECTED VALUE & ADDED SEMICOLON
 const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // <<< NEW: Added for music fade logic
 // ------------------------
 

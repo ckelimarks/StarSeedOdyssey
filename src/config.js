@@ -126,6 +126,7 @@ export const GRAVITY_CONSTANT = 0.005;
 export const PLAYER_SPEED = 0.15;
 export const PLAYER_MODEL_SCALE = 7.0; // Scale factor for the player model (Increased from 5.0)
 export const PLAYER_ROTATION_SPEED = Math.PI * 2; // Radians per second (e.g., 360 degrees/sec)
+export const PLAYER_MAX_HEALTH = 3; // <<< ADDED Max Health
 
 // --- Pal Configuration (NEW) ---
 export const PAL_ACCELERATION = ACCELERATION * 0.27; // Reduced further from 0.7

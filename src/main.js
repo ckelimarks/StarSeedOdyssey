@@ -90,7 +90,7 @@ let isGameOver = false; // <<< NEW: Game Over State Flag
 let shakeDuration = 0; // <<< NEW: Screen Shake State
 let shakeIntensity = 0;
 let shakeTimer = 0;
-let playerHealth = 3; // <<< NEW: Player Health
+// let playerHealth = 3; // <<< REMOVED: Use window.playerState.health instead
 let playerHitCooldownTimer = 0; // <<< NEW: Invulnerability Timer
 const PLAYER_HIT_COOLDOWN_DURATION = 1.0; // <<< NEW: Cooldown duration in seconds
 
@@ -110,6 +110,7 @@ let planetTooltipElement = null; // <<< NEW: For hover info
 let planetOutlineElement = null; // <<< NEW: For CSS outline
 let gameOverOverlayElement = null; // <<< NEW: Game Over Screen
 let playerHealthElement = null; // <<< NEW: Player Health UI
+let damageOverlayElement = null; // <<< NEW: Damage Flash Overlay
 // let startOverlayElement = null; // <<< REMOVED: Start Overlay UI
 
 // --- Raycasting & Hover State ---
@@ -464,8 +465,10 @@ async function init() {
         // <<< ADD BACK Get Element References >>>
         gameOverOverlayElement = document.getElementById('gameOverOverlay');
         playerHealthElement = document.getElementById('player-health');
+        damageOverlayElement = document.getElementById('damage-overlay'); // <<< Get Damage Overlay
         // startOverlayElement = document.getElementById('start-overlay'); // <<< REMOVED Get Start Overlay Element
         console.log(`[Init Debug] gameOverOverlayElement found? ${!!gameOverOverlayElement}`); // Check immediately
+        console.log(`[Init Debug] damageOverlayElement found? ${!!damageOverlayElement}`); // <<< Check Damage Overlay
         // console.log(`[Init Debug] startOverlayElement found? ${!!startOverlayElement}`); // <<< REMOVED log
         // ---------------------------------
 
@@ -837,15 +840,15 @@ async function init() {
 
         // NEW: Create Boost Meter UI
         const boostMeterContainer = document.createElement('div');
-        boostMeterContainer.style.position = 'absolute';
-        boostMeterContainer.style.bottom = '10px';
-        boostMeterContainer.style.right = '10px';
+        boostMeterContainer.style.position = 'relative'; // Add relative for text overlay
         boostMeterContainer.style.width = '150px';
         boostMeterContainer.style.height = '20px';
         boostMeterContainer.style.backgroundColor = 'rgba(50, 50, 50, 0.7)';
         boostMeterContainer.style.border = '1px solid #888';
         boostMeterContainer.style.borderRadius = '3px';
         boostMeterContainer.style.overflow = 'hidden';
+        // Add margin if needed, but flex gap in inventory container should handle it
+        // boostMeterContainer.style.marginTop = '8px'; 
 
         boostMeterFillElement = document.createElement('div');
         boostMeterFillElement.style.width = '0%'; // Start empty (will update)
@@ -869,9 +872,34 @@ async function init() {
 
         boostMeterContainer.appendChild(boostMeterFillElement);
         boostMeterContainer.appendChild(boostStatusElement);
-        document.body.appendChild(boostMeterContainer);
-        // ---------------------------
+        // document.body.appendChild(boostMeterContainer); // Remove appending to body
+
+        // --- Append Health and Boost to Inventory Container ---
+        const inventoryContainer = document.getElementById('inventory-container');
+        const playerHealthDiv = document.getElementById('player-health'); // Get the health div from HTML
         
+        if (inventoryContainer) {
+            // Prepend Health Bar to keep it at the top of the inventory area
+            if(playerHealthDiv) {
+                inventoryContainer.insertBefore(playerHealthDiv, inventoryContainer.firstChild);
+                console.log("Main INIT: Moved Player Health Bar into Inventory Container.");
+            } else {
+                console.warn("Main INIT: Could not find #player-health element to move.");
+            }
+            
+            // Append Boost Meter below existing inventory bars
+            inventoryContainer.appendChild(boostMeterContainer);
+            console.log("Main INIT: Appended Boost Meter to Inventory Container.");
+        } else {
+            console.warn("Main INIT: Inventory container not found! Could not append boost meter or move health bar.");
+            // Fallback: Append boost meter to body if inventory container fails
+            boostMeterContainer.style.position = 'absolute'; 
+            boostMeterContainer.style.bottom = '10px'; 
+            boostMeterContainer.style.right = '10px'; 
+            document.body.appendChild(boostMeterContainer);
+        }
+        // ----------------------------------------------------
+
         // --- Create Debug Buttons (Moved to Bottom Right) ---
         debugFillButton = document.createElement('button');
         debugFillButton.textContent = 'Debug: Fill Resources';
@@ -914,15 +942,18 @@ async function init() {
         enemyStatusElement = document.createElement('div');
         enemyStatusElement.id = 'enemy-status';
         enemyStatusElement.style.position = 'absolute';
-        enemyStatusElement.style.top = '40px'; // Below Stats
-        enemyStatusElement.style.left = '10px';
-        enemyStatusElement.style.color = 'white';
-        enemyStatusElement.style.fontFamily = 'Helvetica, Arial, sans-serif';
-        enemyStatusElement.style.fontSize = '14px';
-        enemyStatusElement.style.textShadow = '1px 1px 2px black';
-        enemyStatusElement.textContent = 'Enemy: Initializing...'; // Initial text
+        enemyStatusElement.style.right = '10px'; // Add right
+        enemyStatusElement.style.bottom = '10px'; // Add bottom (placing it below debug buttons/boost meter if they were there)
+        enemyStatusElement.style.zIndex = '100'; // Ensure consistent z-index
+        enemyStatusElement.style.fontFamily = 'Helvetica, Arial, sans-serif'; // Style consistency
+        enemyStatusElement.style.fontSize = '12px'; // Style consistency
+        enemyStatusElement.style.color = 'white'; // Style consistency
+        enemyStatusElement.style.backgroundColor = 'rgba(0, 0, 0, 0.5)'; // Style consistency
+        enemyStatusElement.style.padding = '5px'; // Style consistency
+        enemyStatusElement.style.borderRadius = '3px'; // Style consistency
+        enemyStatusElement.textContent = 'Enemy: Initializing'; // Initial text
         document.body.appendChild(enemyStatusElement);
-        // ----------------------------------
+        // --------------------------
 
         // --- NEW: Create Planet Tooltip Element ---
         planetTooltipElement = document.createElement('div');
@@ -1767,11 +1798,24 @@ function animate() {
             enemyState.mesh,
             config.ENEMY_RADIUS
         )) {
-            console.log(`COLLISION! Health decreasing from ${playerHealth}. Cooldown timer: ${playerHitCooldownTimer.toFixed(2)}`); // <<< ADD Log health BEFORE decrement
-            playerHealth--;
+            console.log(`COLLISION! Health decreasing from ${window.playerState.health}. Cooldown timer: ${playerHitCooldownTimer.toFixed(2)}`); // <<< ADD Log health BEFORE decrement
+            window.playerState.health--; // <<< Use window.playerState.health
             updatePlayerHealthUI();
             playerHitCooldownTimer = PLAYER_HIT_COOLDOWN_DURATION; // Start cooldown
             console.log(`Cooldown started. New timer value: ${playerHitCooldownTimer.toFixed(2)}`); // <<< ADD Log cooldown start
+
+            // --- Trigger Red Flash --- <<< NEW
+            if (damageOverlayElement) {
+                damageOverlayElement.classList.add('visible');
+                // Set timeout to remove the class after a short duration
+                setTimeout(() => {
+                    // Ensure the element still exists before removing class
+                    if (damageOverlayElement) {
+                         damageOverlayElement.classList.remove('visible');
+                    }
+                }, 200); // 200ms flash duration
+            }
+            // -------------------------
 
             // Play collision sound
             if (window.loadedSounds?.playerCollideSound) {
@@ -1779,7 +1823,8 @@ function animate() {
                 window.loadedSounds.playerCollideSound.play();
             }
 
-            if (playerHealth <= 0) {
+            // Check if health dropped to 0 or below
+            if (window.playerState.health <= 0) { // <<< Use window.playerState.health
                 // --- GAME OVER --- 
                 console.log("GAME OVER - Health Depleted!");
                 isGameOver = true;
@@ -1835,7 +1880,7 @@ function animate() {
 
             } else {
                 // --- Just Took Damage (Not Game Over) ---
-                console.log(`Damage taken. Remaining health: ${playerHealth}`); // <<< ADD Log remaining health
+                console.log(`Damage taken. Remaining health: ${window.playerState.health}`); // <<< Use window.playerState.health
                 triggerScreenShake(0.4, 1.2); // Shorter/less intense shake for taking damage
             }
         }
@@ -1899,16 +1944,47 @@ function triggerScreenShake(duration, intensity) {
 
 // --- NEW: Player Health UI Update ---
 function updatePlayerHealthUI() {
-    if (playerHealthElement) {
-        playerHealthElement.textContent = `Health: ${playerHealth}`;
-        // Optional: Change color based on health
-        if (playerHealth === 1) {
-            playerHealthElement.style.color = 'red';
-        } else if (playerHealth === 2) {
-            playerHealthElement.style.color = 'orange';
+    // Get the new elements
+    const healthFillElement = document.getElementById('player-health-fill');
+    const healthTextElement = document.getElementById('player-health-text');
+    
+    // <<< REMOVE Redundant Debug Log >>>
+    // console.log(`[updatePlayerHealthUI] Check values: window.playerState.health = ${window.playerState?.health}, config.PLAYER_MAX_HEALTH = ${config?.PLAYER_MAX_HEALTH}`);
+    
+    // Ensure playerState and elements exist
+    // <<< ADD check for playerState.maxHealth >>>
+    if (window.playerState && typeof window.playerState.health === 'number' && typeof window.playerState.maxHealth === 'number' && healthFillElement && healthTextElement) {
+        const currentHealth = window.playerState.health;
+        const maxHealth = window.playerState.maxHealth; // <<< READ from playerState
+        
+        // Prevent division by zero and ensure health is not negative
+        const clampedHealth = Math.max(0, currentHealth);
+        const healthPercent = (maxHealth > 0) ? (clampedHealth / maxHealth) * 100 : 0;
+        
+        // Update the fill bar width
+        healthFillElement.style.width = `${Math.min(healthPercent, 100)}%`;
+        
+        // Update the text overlay
+        healthTextElement.textContent = `Health: ${clampedHealth} / ${maxHealth}`;
+        
+        // Optional: Change bar color based on health? (e.g., red when low)
+        if (healthPercent < 35) {
+            healthFillElement.style.backgroundColor = '#ff4444'; // Red when low
+        } else if (healthPercent < 70) {
+            healthFillElement.style.backgroundColor = '#ffcc44'; // Yellow when medium
         } else {
-            playerHealthElement.style.color = 'white';
+            healthFillElement.style.backgroundColor = '#44aaff'; // Blue when high
         }
+        
+    } else {
+        // Log error or hide element if data is missing
+        if (healthTextElement) {
+             healthTextElement.textContent = 'Health: N/A';
+        }
+         if (healthFillElement) {
+             healthFillElement.style.width = '0%';
+        }
+         console.warn("updatePlayerHealthUI: playerState, health, maxHealth, or health elements not available."); // Updated warning
     }
 }
 // ----------------------------------

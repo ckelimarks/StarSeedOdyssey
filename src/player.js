@@ -136,8 +136,13 @@ function initPlayer(scene, homePlanet, audioListener) {
         isGrounded: true,
         // -----------------------
         wasFueledLastFrame: true, // NEW: Track fuel state for sound trigger
-        boostTrail: null // NEW: Added boostTrail reference
+        boostTrail: null, // NEW: Added boostTrail reference
     };
+
+    // Assign health and maxHealth after object creation
+    playerState.health = 3; // Default numeric value
+    playerState.maxHealth = config?.PLAYER_MAX_HEALTH ?? 3; // Read from config OR use default 3
+    console.log(`[Player INIT DEBUG] Assigned health: ${playerState.health}, maxHealth: ${playerState.maxHealth} from config: ${config?.PLAYER_MAX_HEALTH}`);
 
     // Player initial position is LOCAL to the home planet
     const playerLocalPosition = new THREE.Vector3(0, homePlanetRadius + config.PLAYER_RADIUS, 0);
