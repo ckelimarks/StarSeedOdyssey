@@ -29,6 +29,12 @@ let purpleTreeModelProto = null;
 let techApertureModelProto = null;
 let techApertureModelAnimations = []; // Initialize as empty array
 
+// --- NEW: Model Loading Promises ---
+let seedModelLoadPromise = null;
+let mossyLogModelLoadPromise = null;
+let fuelModelLoadPromise = null;
+let techApertureModelLoadPromise = null;
+
 // --- NEW: List to store animated decorative items ---
 let animatedDecorItems = [];
 
@@ -114,17 +120,29 @@ const PARTICLE_SPEED = 10.0; // Increased from 2.0
 
 function spawnFuelParticles(originLocalPosition) {
     console.log("[ParticleDebug] Spawning fuel particles at:", originLocalPosition);
+    
+    // Get the world position and normal at the spawn point
+    const worldPosition = homePlanetRef.localToWorld(originLocalPosition.clone());
+    const worldNormal = originLocalPosition.clone().normalize();
+    
     for (let i = 0; i < PARTICLE_COUNT; i++) {
         const particle = new THREE.Mesh(particleGeometry, particleMaterial.clone()); // Clone material for independent opacity
         particle.position.copy(originLocalPosition);
 
-        // Random outward velocity
-        const velocity = new THREE.Vector3(
+        // Calculate velocity in world space
+        const randomDirection = new THREE.Vector3(
             (Math.random() - 0.5) * 2,
             (Math.random() - 0.5) * 2,
             (Math.random() - 0.5) * 2
-        );
-        velocity.normalize().multiplyScalar(PARTICLE_SPEED);
+        ).normalize();
+        
+        // Project velocity onto tangent plane of the planet
+        const tangentVelocity = randomDirection.sub(
+            worldNormal.clone().multiplyScalar(randomDirection.dot(worldNormal))
+        ).normalize();
+        
+        // Scale to desired speed
+        const velocity = tangentVelocity.multiplyScalar(PARTICLE_SPEED);
 
         // --- NaN Check ---
         if (isNaN(velocity.x) || isNaN(velocity.y) || isNaN(velocity.z)) {
@@ -170,7 +188,6 @@ function updateFuelParticles(deltaTime) {
         } else {
             // Move particle
             // DEBUG: Log values before position update
-            console.log(`[ParticleDebug Calc] i=${i} Vel=(${pData.velocity.x.toFixed(2)}, ${pData.velocity.y.toFixed(2)}, ${pData.velocity.z.toFixed(2)}) dT=${deltaTime.toFixed(4)}`);
             pData.mesh.position.addScaledVector(pData.velocity, deltaTime);
             // Fade out and shrink
             const lifeRatio = age / PARTICLE_LIFETIME;
@@ -313,7 +330,11 @@ function generateVisualResources(count, color, resourceType, resourceArray, home
             // --------------------------------
             
             homePlanet.add(item);
-            const itemData = { gem: item, type: resourceType }; 
+            const itemData = { 
+                gem: item, 
+                type: resourceType,
+                seedsToGive: resourceType === 'seeds' ? config.SEEDS_PER_FOREST : 1 // Add seedsToGive property
+            }; 
             resourceArray.push(itemData);
             allCurrentVisuals.push(itemData); 
 
@@ -418,147 +439,176 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
     sceneRef = scene;
     homePlanetRef = homePlanet;
     planetsStateRef = planetsState;
-
+    
+    // Initialize floating numbers
+    initFloatingNumbers();
+    
     // --- Load Seed (Tree) Model Asynchronously ---
     const seedLoader = new GLTFLoader();
-    seedLoader.load(
-        'models/tree/tree.gltf', // Path to your tree model
-        function (gltf) { // Success callback
-            console.log('Seed (Tree) GLTF model loaded.');
-            seedModelProto = gltf.scene;
+    seedModelLoadPromise = new Promise((resolve, reject) => {
+        seedLoader.load(
+            'models/tree/tree.gltf',
+            function (gltf) { // Success callback
+                console.log('Seed (Tree) GLTF model loaded.');
+                seedModelProto = gltf.scene;
 
-            // Ensure correct material properties if needed (apply to children)
-            seedModelProto.traverse((child) => {
-                if (child.isMesh) {
-                    child.castShadow = true;
-                    child.receiveShadow = true;
-                    // Optional: Adjust material if needed, e.g., roughness, metalness
-                }
-            });
+                // Ensure correct material properties if needed (apply to children)
+                seedModelProto.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
 
-            // --- Generate Seeds ONLY AFTER tree model is loaded ---
-            console.log('Generating seed items using loaded tree model...');
-    generateVisualResources(config.INITIAL_SEED_GEMS, config.SEED_GEM_COLOR, 'seeds', seedGems, homePlanet, planetsState);
-            // ------------------------------------------------------
-
-        },
-        undefined, // onProgress callback (optional)
-        function (error) { // Error callback
-            console.error('An error happened loading the seed (tree) GLTF:', error);
-        }
-    );
-    // --- End Seed (Tree) Model Loading ---
+                resolve(seedModelProto);
+            },
+            undefined, // onProgress callback (optional)
+            function (error) { // Error callback
+                console.error('An error happened loading the seed (tree) GLTF:', error);
+                reject(error);
+            }
+        );
+    });
 
     // --- Load Mossy Log Model Asynchronously ---
     const logLoader = new GLTFLoader();
-    logLoader.load(
-        'models/mossy_log/mossy_log.gltf', // Adjust path if needed
-        function (gltf) { // Success callback
-            console.log('Mossy Log GLTF model loaded.');
-            mossyLogModelProto = gltf.scene;
+    mossyLogModelLoadPromise = new Promise((resolve, reject) => {
+        logLoader.load(
+            'models/mossy_log/mossy_log.gltf',
+            function (gltf) { // Success callback
+                console.log('Mossy Log GLTF model loaded.');
+                mossyLogModelProto = gltf.scene;
 
-            // Ensure correct material properties and shadows
-            mossyLogModelProto.traverse((child) => {
-                if (child.isMesh) {
-                    child.castShadow = false;
-                    child.receiveShadow = true;
-                }
-            });
+                // Ensure correct material properties and shadows
+                mossyLogModelProto.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = false;
+                        child.receiveShadow = true;
+                    }
+                });
 
-            // --- Generate Decorative Logs ONLY AFTER model is loaded ---
-            console.log('Generating decorative mossy logs...');
-            // Pass an empty array for animations
+                resolve(mossyLogModelProto);
+            },
+            undefined, // onProgress callback (optional)
+            function (error) { // Error callback
+                console.error('An error happened loading the mossy log GLTF:', error);
+                reject(error);
+            }
+        );
+    });
+
+    // Wait for models to load before generating items
+    Promise.all([seedModelLoadPromise, mossyLogModelLoadPromise])
+        .then(() => {
+            console.log('All required models loaded, generating items...');
+            // Generate seeds
+            generateVisualResources(config.INITIAL_SEED_GEMS, config.SEED_GEM_COLOR, 'seeds', seedGems, homePlanet, planetsState);
+            // Generate decorative logs
             generateDecorativeItems(config.NUM_MOSSY_LOGS, mossyLogModelProto, [], config.MOSSY_LOG_SCALE, homePlanet, planetsState);
-            // -----------------------------------------------------------
-
-        },
-        undefined, // onProgress callback (optional)
-        function (error) { // Error callback
-            console.error('An error happened loading the mossy log GLTF:', error);
-        }
-    );
-    // --- End Mossy Log Model Loading ---
+        })
+        .catch(error => {
+            console.error('Error loading models:', error);
+        });
 
     // --- Load Fuel Model Asynchronously ---
     const fuelLoader = new GLTFLoader(); // Use a separate constant name
-    fuelLoader.load(
-        'models/red_crystal/scene.gltf',
-        function (gltf) { // Success callback
-            console.log('Fuel crystal GLTF model loaded.');
-            // --- Create Offset Parent Prototype ---
-            const loadedModel = gltf.scene;
-            fuelModelProto = new THREE.Object3D(); // Create an empty parent
-            fuelModelProto.add(loadedModel); // Add the loaded crystal as a child
-            
-            // Offset the child model DOWNWARD relative to the parent origin
-            // Revert to assuming Y is up for the model
-            // Set offset to 0 assuming new model origin is at its base
-            const modelOffset = -50.4; 
-            loadedModel.position.set(0, modelOffset, 0); 
-            console.log(`Offsetting crystal model child by ${modelOffset} on Y.`);
-            // -------------------------------------
-            
-            // Ensure correct material properties if needed (apply to children)
-            fuelModelProto.traverse((child) => {
-                if (child.isMesh) {
-                    child.castShadow = true;
-                    child.receiveShadow = true;
-                    // <<< ADD Transparency Settings >>>
-                    if (child.material) {
-                        child.material.transparent = true;
-                        child.material.opacity = 0.85; // <<< SET to 0.15 (85% transparent)
-                        child.material.needsUpdate = true; // Ensure changes apply
+    fuelModelLoadPromise = new Promise((resolve, reject) => {
+        fuelLoader.load(
+            'models/red_crystal/scene.gltf',
+            function (gltf) { // Success callback
+                console.log('Fuel crystal GLTF model loaded.');
+                // --- Create Offset Parent Prototype ---
+                const loadedModel = gltf.scene;
+                fuelModelProto = new THREE.Object3D(); // Create an empty parent
+                fuelModelProto.add(loadedModel); // Add the loaded crystal as a child
+                
+                // Offset the child model DOWNWARD relative to the parent origin
+                // Revert to assuming Y is up for the model
+                // Set offset to 0 assuming new model origin is at its base
+                const modelOffset = -50.4; 
+                loadedModel.position.set(0, modelOffset, 0); 
+                console.log(`Offsetting crystal model child by ${modelOffset} on Y.`);
+                // -------------------------------------
+                
+                // Ensure correct material properties if needed (apply to children)
+                fuelModelProto.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                        // <<< ADD Transparency Settings >>>
+                        if (child.material) {
+                            child.material.transparent = true;
+                            child.material.opacity = 0.85; // <<< SET to 0.15 (85% transparent)
+                            child.material.needsUpdate = true; // Ensure changes apply
+                        }
+                        // <<< END Transparency Settings >>>
                     }
-                    // <<< END Transparency Settings >>>
-                }
-            });
+                });
 
-            // --- Generate Fuel Items ONLY AFTER model is loaded ---
-            console.log('Generating fuel items using loaded crystal model...');
-    generateVisualResources(config.INITIAL_FUEL_ITEMS, config.FUEL_ITEM_COLOR, 'fuel', fuelItems, homePlanet, planetsState);
-            // ------------------------------------------------------
+                // --- Generate Fuel Items ONLY AFTER model is loaded ---
+                console.log('Generating fuel items using loaded crystal model...');
+        generateVisualResources(config.INITIAL_FUEL_ITEMS, config.FUEL_ITEM_COLOR, 'fuel', fuelItems, homePlanet, planetsState);
+                // ------------------------------------------------------
 
-        },
-        undefined, // onProgress callback (optional)
-        function (error) { // Error callback
-            console.error('An error happened loading the fuel crystal GLTF:', error);
-        }
-    );
-    // --- End Fuel Model Loading ---
+                resolve(fuelModelProto);
+            },
+            undefined, // onProgress callback (optional)
+            function (error) { // Error callback
+                console.error('An error happened loading the fuel crystal GLTF:', error);
+                reject(error);
+            }
+        );
+    });
 
     // --- Load Tech Aperture (Purple Tree) Model Asynchronously --- // Keep loading, comment generation
     const techApertureLoader = new GLTFLoader(); // Renamed loader variable
-    techApertureLoader.load(
-        'models/tech_aperture/tech_aperture.gltf', // Path remains the same
-        function (gltf) { // Success callback
-            console.log('Tech Aperture GLTF model loaded.'); // Updated log
-            // Store the prototype for later use
-            techApertureModelProto = gltf.scene; // <<< Store in a new variable
+    techApertureModelLoadPromise = new Promise((resolve, reject) => {
+        techApertureLoader.load(
+            'models/tech_aperture/tech_aperture.gltf', // Path remains the same
+            function (gltf) { // Success callback
+                console.log('Tech Aperture GLTF model loaded.'); // Updated log
+                // Store the prototype for later use
+                techApertureModelProto = gltf.scene; // <<< Store in a new variable
 
-            // Ensure correct material properties and shadows
-            techApertureModelProto.traverse((child) => {
-                if (child.isMesh) {
-                    child.castShadow = false; // Disable casting shadows for this model
-                    child.receiveShadow = true;
-                }
-            });
+                // Ensure correct material properties and shadows
+                techApertureModelProto.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = false; // Disable casting shadows for this model
+                        child.receiveShadow = true;
+                    }
+                });
 
-            // Store animations if any (needed for later spawning)
-            techApertureModelAnimations = gltf.animations; // <<< Store animations
+                // Store animations if any (needed for later spawning)
+                techApertureModelAnimations = gltf.animations; // <<< Store animations
 
-            // --- Generate Decorative Trees ONLY AFTER model is loaded --- // <<< COMMENT OUT
-            // console.log('Generating decorative purple trees...');
-            // Pass gltf.animations here!
-            // generateDecorativeItems(config.NUM_PURPLE_TREES, purpleTreeModelProto, gltf.animations, config.PURPLE_TREE_SCALE, homePlanet, planetsState);
-            // -----------------------------------------------------------
+                // --- Generate Decorative Trees ONLY AFTER model is loaded --- // <<< COMMENT OUT
+                // console.log('Generating decorative purple trees...');
+                // Pass gltf.animations here!
+                // generateDecorativeItems(config.NUM_PURPLE_TREES, purpleTreeModelProto, gltf.animations, config.PURPLE_TREE_SCALE, homePlanet, planetsState);
+                // -----------------------------------------------------------
 
-        },
-        undefined, // onProgress callback (optional)
-        function (error) { // Error callback
-            console.error('An error happened loading the tech aperture GLTF:', error); // Updated log
-        }
-    );
-    // --- End Tech Aperture (Purple Tree) Model Loading --- // Updated comment
+                resolve(techApertureModelProto);
+            },
+            undefined, // onProgress callback (optional)
+            function (error) { // Error callback
+                console.error('An error happened loading the tech aperture GLTF:', error); // Updated log
+                reject(error);
+            }
+        );
+    });
+
+    // Wait for models to load before generating items
+    Promise.all([fuelModelLoadPromise, techApertureModelLoadPromise])
+        .then(() => {
+            console.log('All required models loaded, generating items...');
+            // Generate seeds
+            generateVisualResources(config.INITIAL_SEED_GEMS, config.SEED_GEM_COLOR, 'seeds', seedGems, homePlanet, planetsState);
+            // Generate decorative logs
+            generateDecorativeItems(config.NUM_MOSSY_LOGS, mossyLogModelProto, [], config.MOSSY_LOG_SCALE, homePlanet, planetsState);
+        })
+        .catch(error => {
+            console.error('Error loading models:', error);
+        });
 
     console.log("Resources INIT: Finished initial setup (model loading is async).");
 }
@@ -825,33 +875,67 @@ function updateResources(scene, playerSphere, homePlanet, audioListener, deltaTi
                 : config.COLLECTION_DISTANCE;
 
             if (distanceToPlayer < requiredDistance) {
+                // Store position before any modifications
+                const collectionPosition = itemGroup.gem.position.clone();
+                
+                // Immediately remove the item from the scene to prevent physics interactions
+                homePlanetRef.remove(itemGroup.gem);
+                
                 if (itemGroup.type === 'fuel') {
                     // Check if already full before collecting
                     const wasFuelFull = inventory.fuel >= config.MAX_FUEL;
                     if (!wasFuelFull) {
-                        inventory.fuel = Math.min(config.MAX_FUEL, inventory.fuel + config.FUEL_PER_PICKUP);
+                        // Get random fuel amount between min and max
+                        const fuelAmount = Math.floor(Math.random() * 
+                            (config.FUEL_PER_PICKUP_MAX - config.FUEL_PER_PICKUP_MIN + 1)) + 
+                            config.FUEL_PER_PICKUP_MIN;
+                            
+                        // Update inventory
+                        inventory.fuel = Math.min(config.MAX_FUEL, inventory.fuel + fuelAmount);
                         playFuelPickupSound();
                         updateInventoryDisplay();
-                        spawnFuelParticles(itemGroup.gem.position);
+                        
+                        // Create floating number and particles at the stored position
+                        createFloatingNumber(fuelAmount, collectionPosition);
+                        spawnFuelParticles(collectionPosition);
+                        
+                        // Schedule removal from arrays after everything else is done
                         scheduleItemRemoval(itemGroup, now, itemsToRemove);
+                        
                         // Check if *now* full
-                        if (inventory.fuel >= config.MAX_FUEL) {
+                        if (!wasFuelFull && inventory.fuel >= config.MAX_FUEL) {
                             playInventoryFullSound();
                         }
                     }
                 } else if (itemGroup.type === 'seeds') {
-                     // Check if already full before collecting
-                     const wasSeedsFull = inventory.seeds >= config.MAX_SEEDS;
-                     if (!wasSeedsFull) {
-                        inventory.seeds++;
+                    // Check if already full before collecting
+                    const wasSeedsFull = inventory.seeds >= config.MAX_SEEDS;
+                    
+                    // Random chance to get only 1 seed (20% chance)
+                    const seedsToGive = Math.random() < 0.2 ? 1 : (itemGroup.seedsToGive || 1);
+                    const newSeedCount = Math.min(config.MAX_SEEDS, inventory.seeds + seedsToGive);
+                    const actualSeedsGained = newSeedCount - inventory.seeds;
+                    
+                    // Always remove the tree, but only add seeds if we can
+                    if (actualSeedsGained > 0) {
+                        inventory.seeds = newSeedCount;
                         playSeedPickupSound(); // Plays treefall sound
-                        updateInventoryDisplay(); 
-                        scheduleItemRemoval(itemGroup, now, itemsToRemove);
-                        // Check if *now* full
-                        if (inventory.seeds >= config.MAX_SEEDS) {
+                        updateInventoryDisplay();
+                        
+                        // Create floating number at the stored position
+                        createFloatingNumber(actualSeedsGained, collectionPosition, 0x00cc44); // Green color for seeds
+                        
+                        // Only play inventory full sound when we first become full
+                        if (!wasSeedsFull && inventory.seeds >= config.MAX_SEEDS) {
                             playInventoryFullSound();
                         }
+                    } else {
+                        // Still play sound and show feedback even if we can't collect seeds
+                        playSeedPickupSound();
                     }
+                    
+                    // Schedule removal from arrays after everything else is done
+                    scheduleItemRemoval(itemGroup, now, itemsToRemove);
                 }
             }
         }
@@ -885,60 +969,64 @@ function updateResources(scene, playerSphere, homePlanet, audioListener, deltaTi
                 // Ensure originalPosition is a Vector3
                 if (!position || !position.isVector3) {
                      console.warn("Invalid originalPosition in regen queue, skipping item.", collectedItem);
-                     // Optionally remove this invalid item from queue?
-                     // regeneratedIndices.push(index); // Mark for removal if invalid
                      return; 
                 }
 
                 playerSphere.getWorldPosition(_playerWorldPos);
-                // Use homePlanetRef for consistency
                 const potentialWorldPos = homePlanetRef.localToWorld(position.clone());
                 const playerDistSq = _playerWorldPos.distanceToSquared(potentialWorldPos);
                 const safeFromPlayer = playerDistSq > (config.COLLECTION_DISTANCE * config.COLLECTION_DISTANCE * 4);
-                // Combine current items for collision check during respawn
-                const combinedItems = [...seedGems, ...fuelItems]; 
+                const combinedItems = [...seedGems, ...fuelItems];
 
                 if (!isTooCloseToOtherGems(position, combinedItems, config.MIN_GEM_DISTANCE) && safeFromPlayer) {
                     let newItem;
                     if(collectedItem.type === 'seeds') {
-                         // --- NEW: Respawn Seed (Tree) Model ---
-                          if (!seedModelProto) {
+                         if (!seedModelProto) {
                              console.warn("Seed (Tree) prototype not loaded, cannot respawn seed yet.");
-                             return; // Skip this respawn attempt
-                          }
-                          newItem = seedModelProto.clone(true);
-                          newItem.gemType = collectedItem.type;
-                          const treeScale = .5; // Use consistent scale
-                          newItem.scale.set(treeScale, treeScale, treeScale);
-                          const surfaceNormal = position.clone().normalize();
-                          const modelUp = new THREE.Vector3(0, 1, 0); // Y-up
-                          const alignmentQuaternion = new THREE.Quaternion();
-                          alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
-                          newItem.quaternion.copy(alignmentQuaternion);
-                          const planetRadius = homePlanetRef.geometry.parameters.radius;
-                          const verticalOffset = 0.1; // Consistent offset
-                          const finalPos = position.clone().normalize().multiplyScalar(planetRadius + verticalOffset);
-                          newItem.position.copy(finalPos); // Position parent origin
-                          newItem.originalPosition = finalPos.clone(); // Store adjusted position
-                          // -------------------------------------
-                     } else if (collectedItem.type === 'fuel') {
-                         if (!fuelModelProto) { // Check if model is loaded before respawning fuel
-                             console.warn("Fuel prototype not loaded, cannot respawn fuel yet.");
-                             return; // Skip this respawn attempt
+                             return;
                          }
-                         // Respawn fuel using the same logic as initial generation
-                         newItem = fuelModelProto.clone(true);
+                         newItem = seedModelProto.clone(true);
                          newItem.gemType = collectedItem.type;
-                         const fuelScale = 0.05; // Use consistent scale
-                         newItem.scale.set(fuelScale, fuelScale, fuelScale);
+                         const treeScale = .5;
+                         newItem.scale.set(treeScale, treeScale, treeScale);
                          const surfaceNormal = position.clone().normalize();
-                         const modelUp = new THREE.Vector3(0, 1, 0); // Y-up
+                         const modelUp = new THREE.Vector3(0, 1, 0);
                          const alignmentQuaternion = new THREE.Quaternion();
                          alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
                          newItem.quaternion.copy(alignmentQuaternion);
-                         newItem.position.copy(position); // Position parent origin (offset is baked into child)
-                         newItem.originalPosition = position.clone(); // Store surface position
-                     } else {
+                         const planetRadius = homePlanetRef.geometry.parameters.radius;
+                         const verticalOffset = 0.1;
+                         const finalPos = position.clone().normalize().multiplyScalar(planetRadius + verticalOffset);
+                         newItem.position.copy(finalPos);
+                         newItem.originalPosition = finalPos.clone();
+
+                         // Add to seedGems array for collision detection
+                         const itemData = { 
+                             gem: newItem, 
+                             type: 'seeds',
+                             seedsToGive: config.SEEDS_PER_FOREST // Add seedsToGive property
+                         };
+                         seedGems.push(itemData);
+                         homePlanetRef.add(newItem);
+                         regeneratedIndices.push(index);
+                    } else if (collectedItem.type === 'fuel') {
+                        if (!fuelModelProto) { // Check if model is loaded before respawning fuel
+                            console.warn("Fuel prototype not loaded, cannot respawn fuel yet.");
+                            return; // Skip this respawn attempt
+                        }
+                        // Respawn fuel using the same logic as initial generation
+                        newItem = fuelModelProto.clone(true);
+                        newItem.gemType = collectedItem.type;
+                        const fuelScale = 0.05; // Use consistent scale
+                        newItem.scale.set(fuelScale, fuelScale, fuelScale);
+                        const surfaceNormal = position.clone().normalize();
+                        const modelUp = new THREE.Vector3(0, 1, 0); // Y-up
+                        const alignmentQuaternion = new THREE.Quaternion();
+                        alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
+                        newItem.quaternion.copy(alignmentQuaternion);
+                        newItem.position.copy(position); // Position parent origin (offset is baked into child)
+                        newItem.originalPosition = position.clone(); // Store surface position
+                    } else {
                         console.warn("Unknown type in regen queue:", collectedItem.type);
                         return;
                     }
@@ -1724,7 +1812,7 @@ export {
     playPlayerJumpSound,
     playPlayerLandSound,
     playInventoryFullSound,
-    playTerraformReadySound, // NEW Export
+    playTerraformReadySound,
     // --- Add new exports --- 
     playThemeMusic,
     playTerraformSuccessSound,
@@ -1732,11 +1820,97 @@ export {
     // --- New exports ---
     enemyRoarSound,
     alarmSirenSound,
-    dangerMusicSound, // <<< NEW EXPORT
-    playAppropriateMusic, // <<< NEW EXPORT
+    dangerMusicSound,
+    playAppropriateMusic,
     // --- Add model/animation exports ---
-    techApertureModelProto, // <<< NEW EXPORT
-    techApertureModelAnimations // <<< NEW EXPORT
-    // ---------------------------------
-    // Add any other functions from this module that need exporting
+    techApertureModelProto,
+    techApertureModelAnimations,
+    seedModelProto,
+    mossyLogModelProto,
+    // --- Add model loading promises ---
+    seedModelLoadPromise,
+    mossyLogModelLoadPromise,
+    // --- Add resource arrays ---
+    seedGems // Export the seedGems array
 }; 
+
+// Floating Number System
+const floatingNumberPool = [];
+const MAX_POOL_SIZE = 10;
+let floatingNumberCanvas = null;
+let floatingNumberTexture = null;
+
+// Initialize the floating number system
+function initFloatingNumbers() {
+    // Create a single shared canvas and texture
+    floatingNumberCanvas = document.createElement('canvas');
+    floatingNumberCanvas.width = 128;
+    floatingNumberCanvas.height = 128;
+    floatingNumberTexture = new THREE.CanvasTexture(floatingNumberCanvas);
+    
+    // Pre-create some sprites
+    for (let i = 0; i < MAX_POOL_SIZE; i++) {
+        const material = new THREE.SpriteMaterial({
+            map: floatingNumberTexture,
+            transparent: true,
+            depthTest: false
+        });
+        const sprite = new THREE.Sprite(material);
+        sprite.visible = false;
+        homePlanetRef.add(sprite);
+        floatingNumberPool.push({
+            sprite,
+            material,
+            inUse: false
+        });
+    }
+}
+
+// Create floating number using object pooling
+function createFloatingNumber(value, position, color = 0xff0000) {
+    // Find an available sprite from the pool
+    const numberObj = floatingNumberPool.find(obj => !obj.inUse);
+    if (!numberObj) return; // No available sprites
+    
+    // Draw the number on the shared canvas
+    const context = floatingNumberCanvas.getContext('2d');
+    context.clearRect(0, 0, 128, 128);
+    context.font = 'bold 48px Arial';
+    context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(`+${value}`, 64, 64);
+    
+    // Update the shared texture
+    floatingNumberTexture.needsUpdate = true;
+    
+    // Set up the sprite
+    const sprite = numberObj.sprite;
+    sprite.position.copy(position);
+    sprite.position.y += 3;
+    sprite.scale.set(4, 4, 1);
+    sprite.material.opacity = 1;
+    sprite.visible = true;
+    numberObj.inUse = true;
+    
+    // Simple animation using setTimeout instead of requestAnimationFrame
+    const startTime = performance.now();
+    const duration = 1000;
+    
+    function updateNumber() {
+        const elapsed = performance.now() - startTime;
+        const progress = elapsed / duration;
+        
+        if (progress < 1) {
+            sprite.position.y += 0.02;
+            sprite.material.opacity = 1 - progress;
+            setTimeout(updateNumber, 16); // ~60fps
+        } else {
+            // Return to pool
+            sprite.visible = false;
+            numberObj.inUse = false;
+        }
+    }
+    
+    updateNumber();
+}

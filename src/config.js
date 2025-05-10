@@ -19,17 +19,13 @@ export const PLAYER_RADIUS = 0.5; // Restored from 0.1, physics boundary
 export const GEM_SIZE = 0.8;
 export const STAR_RADIUS = 80;
 
-// Resource Constants (previously Gem Interaction)
-export const INITIAL_SEEDS = 0; // Changed from 3 to start with 0 seeds
-export const MAX_SEEDS = 10; // Maximum seed capacity
-export const INITIAL_SEED_GEMS = 15; // Number of visual seed items to spawn initially
-export const SEED_GEM_COLOR = 0x00ff00; // Color for visual seed items
-export const COLLECTION_DISTANCE = 2.5; // Increased from 1.8 (Used for FUEL now)
-export const TREE_COLLECTION_DISTANCE = 5.0; // NEW: Larger distance for trees
-export const GEM_MAGNET_DISTANCE = 8.0; // (Disabled for trees)
-export const GEM_MAGNET_STRENGTH = 0.05; // (Disabled for trees)
-export const MIN_GEM_DISTANCE = 2.5;
-export const SEED_REGEN_TIME = 10; // seconds
+// Resource Constants
+export const INITIAL_SEEDS = 0;
+export const MAX_SEEDS = 30; // Reduced from 50 to create more strategic inventory management
+export const INITIAL_SEED_GEMS = 20; // Keep same initial spawn count
+export const SEED_GEM_COLOR = 0x00ff00;
+export const SEED_REGEN_TIME = 300; // Increased from 45 to 300 seconds (5 minutes)
+export const SEEDS_PER_FOREST = 2; // Reduced from 3 to create more meaningful choices
 
 // Decorative Item Config (NEW)
 export const NUM_MOSSY_LOGS = 5;
@@ -37,27 +33,42 @@ export const MOSSY_LOG_SCALE = 0.08;
 export const MIN_DECOR_DISTANCE = 4.0; // Min distance between decorative items
 
 // Fuel Constants
-export const INITIAL_FUEL = 10; // Starting fuel units (Changed from 0)
-export const MAX_FUEL = 100; // Maximum fuel capacity
-export const INITIAL_FUEL_ITEMS = 20; // INCREASED from 10
-export const FUEL_ITEM_COLOR = 0xff0000; // Red color for fuel items
-export const FUEL_REGEN_TIME = 15; // seconds
-export const FUEL_CONSUMPTION_RATE = 2; // Fuel units consumed per second of thrust (UNUSED?)
-export const THRUST_FORCE = 1.0; // Acceleration provided by thrust (Increased from 0.05) (UNUSED?)
-export const FUEL_PER_PICKUP = 10; // NEW: Fuel units gained per pickup item
-export const FUEL_COST_PER_SEED = 5; // NEW/Ensure: Fuel units required for each seed launched
+export const INITIAL_FUEL = 0;
+export const MAX_FUEL = 100; // Keep same max capacity
+export const INITIAL_FUEL_ITEMS = 25; // Keep same initial spawn count
+export const FUEL_ITEM_COLOR = 0xff0000;
+export const FUEL_REGEN_TIME = 45; // Keep same regeneration time
+export const FUEL_CONSUMPTION_RATE = 2;
+export const FUEL_PER_PICKUP_MIN = 4; // Minimum fuel per pickup
+export const FUEL_PER_PICKUP_MAX = 8; // Maximum fuel per pickup (was previously fixed at 8)
+export const FUEL_COST_PER_SEED = 8; // Increased from 5 to make launches more expensive
+
+// Terraforming Constants
+export const SEEDS_REQUIRED_TERRAFORM = 20; // Reduced from 25 to match new economy
+export const FUEL_REQUIRED_TERRAFORM = 80; // Increased from 40 to make terraforming more challenging
+export const MAX_SEEDS_PER_ROCKET = 6; // Reduced from 8 to make payload decisions more strategic
+export const ROCKET_RADIUS = 0.5;
+
+// Growth Timing Constants
+export const INITIAL_GROWTH_TIME = 10; // Reduced from 15 for better initial feedback
+export const FINAL_GROWTH_TIME = 30; // Keep same final growth time for reward of patience
+
+// Resource Constants (previously Gem Interaction)
+export const COLLECTION_DISTANCE = 2.5; // Increased from 1.8 (Used for FUEL now)
+export const TREE_COLLECTION_DISTANCE = 5.0; // NEW: Larger distance for trees
+export const GEM_MAGNET_DISTANCE = 8.0; // (Disabled for trees)
+export const GEM_MAGNET_STRENGTH = 0.05; // (Disabled for trees)
+export const MIN_GEM_DISTANCE = 2.5;
 
 // NEW: Fuel Consumption Rates
 export const FUEL_CONSUMPTION_PER_SECOND_MOVE = 0.5; // Fuel units consumed per second of normal movement
 export const FUEL_CONSUMPTION_PER_SECOND_BOOST = 2.0; // Fuel units consumed per second while boosting
 
 // Terraforming Constants
-export const SEEDS_REQUIRED_TERRAFORM = 10; // Seeds needed to terraform a planet
 export const TERRAFORM_DURATION = 7.0; // SHORTER: Duration in seconds for color change (was 10.0)
 
 // Rocket Constants
 export const ROCKET_MAX_PAYLOAD = 5; // Max seeds per rocket launch
-export const ROCKET_RADIUS = 0.5;
 export const ROCKET_HEIGHT = 2;
 export const ROCKET_COLOR = 0xcccccc;
 export const ROCKET_TRAVEL_DURATION = 10.0; // Seconds for rocket to reach target (lerp)

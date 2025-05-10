@@ -13,6 +13,12 @@ import {
     playPlayerLandSound, // ADDED Land Sound Import
     inventory, // << IMPORT inventory
     playSlowdownSound, // <<< IMPORT Slowdown Sound Player
+    updateInventoryDisplay, // <<< ADD import for inventory display update
+    seedModelProto, // <<< ADD import for seed model
+    mossyLogModelProto, // <<< ADD import for mossy log model
+    seedModelLoadPromise, // Add this import
+    mossyLogModelLoadPromise, // Add this import
+    seedGems // Add seedGems to imports
 } from './resources.js'; // Import sound functions
 import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader.js'; // Use full URL
 
@@ -27,7 +33,9 @@ const keyState = {
     ' ': false, // Spacebar
     'Shift': false, // NEW: Track Shift key
     'l': false, // CHANGED: Use lowercase 'l' for launch key state
-    'b': false // NEW: Added 'B' key state
+    'b': false, // NEW: Added 'B' key state
+    'p': false, // NEW: Added 'P' key state
+    'P': false // NEW: Added 'P' key state
 };
 let bKeyPressedLastFrame = false; // NEW: Track B key state for toggling
 
@@ -115,25 +123,37 @@ function initPlayer(scene, homePlanet, audioListener) {
         throw new Error(`Player INIT: Could not get radius from home planet geometry: ${homePlanet.name}`);
     }
     
-    // Define player state object early
+    // Create player state object
     const playerState = {
-        mesh: null, // Will be set once model loaded (This is the PARENT/ROOT object)
-        visualMesh: null, // <<< NEW: Reference to the visible GLTF mesh
+        mesh: null,
+        visualMesh: null,
         velocity: new THREE.Vector3(),
-        targetLookDirection: new THREE.Vector3(0, 0, 1), // Initial forward (World Z for simplicity, will be corrected)
+        targetLookDirection: new THREE.Vector3(),
         isRollingSoundPlaying: false,
-        isRollingSoundFadingOut: false,
-        rollingFadeStartTime: 0,
+        isJumping: false,
+        jumpStartTime: 0,
+        jumpHeight: 0,
+        jumpPeakReached: false,
+        jumpStartPosition: new THREE.Vector3(),
+        jumpStartVelocity: new THREE.Vector3(),
+        jumpGravity: -9.8,
+        jumpInitialVelocity: 5,
+        jumpMaxHeight: 2,
+        jumpDuration: 0.5,
+        jumpCooldown: 0.5,
+        lastJumpTime: 0,
+        health: config.PLAYER_MAX_HEALTH,
+        maxHealth: config.PLAYER_MAX_HEALTH,
+        inventory: {
+            seeds: config.INITIAL_SEEDS,
+            fuel: config.INITIAL_FUEL
+        },
         // --- NEW Boost State ---
         // Initialize so boost is available immediately
         lastBoostTime: performance.now() - (config.BOOST_COOLDOWN_DURATION * 1000 + 100), 
         boostStartTime: 0, // ADDED: Timestamp when current boost started
         isRiseSoundPlaying: false, // Is the continuous rise sound playing?
         wasBoostingLastFrame: false, // Track boost state change for burst sound
-        // --- Re-add Jump State ---
-        isJumping: false,
-        verticalVelocity: 0.0,
-        isGrounded: true,
         // -----------------------
         wasFueledLastFrame: true, // NEW: Track fuel state for sound trigger
         boostTrail: null, // NEW: Added boostTrail reference
@@ -328,8 +348,7 @@ function initializePathTrail(parentObject, playerState) {
 function handleKeyDown(event) {
     const key = event.key;
     keyState[key] = true;
-    console.log(`[DEBUG] KeyDown detected: ${event.key} (Normalized: ${key})`); // Debug log
-
+    
     // <<< ADD: Attempt to resume AudioContext on first key press >>>
     if (!audioContextResumed && audioListenerRef?.context) { // Check flag and listener
         if (audioListenerRef.context.state === 'suspended') {
@@ -351,8 +370,12 @@ function handleKeyDown(event) {
 
     // --- Handle Boost Input (Shift Key) --- 
     if (key === 'Shift') {
-        console.log(`[DEBUG] Shift key detected.`);
         keyState['Shift'] = true;
+    }
+
+    // --- Handle Planting (P Key) ---
+    if (key === 'p' || key === 'P') {
+        plantSeed();
     }
 }
 
@@ -364,7 +387,6 @@ function handleKeyUp(event) {
     // Use event.key for Shift detection
     // Check against the normalized key
     if (key === 'Shift' || keyState.hasOwnProperty(normalizedKey)) { 
-        console.log(`[DEBUG] KeyUp detected: ${key} (Normalized: ${normalizedKey})`);
         keyState[normalizedKey] = false; // Use normalized key
     }
 }
@@ -1075,4 +1097,140 @@ function initSpeechBubble(parentMesh) {
 
     console.log("Speech bubble initialized and added to parent.");
     return speechBubbleState;
+}
+
+// Modify the plantSeed function
+async function plantSeed() {
+    // Check if we have seeds
+    if (inventory.seeds <= 0) {
+        console.log("No seeds available to plant.");
+        return;
+    }
+
+    // Get the planet we're on
+    const planet = playerState.mesh.parent;
+    if (!planet) {
+        console.error("Cannot plant seed: Player not attached to a planet");
+        return;
+    }
+
+    try {
+        // Wait for mossy log model to load
+        await mossyLogModelLoadPromise;
+
+        // Create log model
+        const logModel = mossyLogModelProto.clone();
+        logModel.scale.set(0.4, 0.4, 0.4); // Half the size for initial phase
+        
+        // Get player's local position on the planet
+        const playerLocalPos = playerState.mesh.position.clone();
+        
+        // Calculate surface normal in local space
+        const surfaceNormal = playerLocalPos.clone().normalize();
+        
+        // Position and align tree to planet surface
+        const modelUp = new THREE.Vector3(0, 1, 0);
+        const alignmentQuaternion = new THREE.Quaternion();
+        alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
+        logModel.quaternion.copy(alignmentQuaternion);
+
+        // Calculate final position
+        const planetRadius = planet.geometry.parameters.radius;
+        const verticalOffset = 0.1;
+        const finalPos = playerLocalPos.clone().normalize().multiplyScalar(planetRadius + verticalOffset);
+        logModel.position.copy(finalPos);
+
+        // Add to planet
+        planet.add(logModel);
+
+        // Start growth timer to middle phase
+        setTimeout(() => {
+            growToLog(logModel, planet);
+        }, config.INITIAL_GROWTH_TIME * 1000); // Convert seconds to milliseconds
+
+        // Deduct from inventory
+        inventory.seeds--;
+        if (typeof updateInventoryDisplay === 'function') {
+            updateInventoryDisplay();
+        }
+
+    } catch (error) {
+        console.error("Error planting seed:", error);
+    }
+}
+
+async function growToLog(seedMesh, planet) {
+    try {
+        // Wait for mossy log model to load
+        await mossyLogModelLoadPromise;
+
+        // Create log model
+        const logModel = mossyLogModelProto.clone();
+        logModel.scale.set(0.8, 0.8, 0.8); // Full size for middle phase
+        
+        // Copy exact position and rotation from previous model
+        logModel.position.copy(seedMesh.position);
+        logModel.quaternion.copy(seedMesh.quaternion);
+
+        // Replace seed with log
+        planet.remove(seedMesh);
+        planet.add(logModel);
+
+        // Start forest growth timer
+        setTimeout(() => {
+            growToForest(logModel, planet);
+        }, config.FINAL_GROWTH_TIME * 1000); // Convert seconds to milliseconds
+
+    } catch (error) {
+        console.error("Error growing to log:", error);
+    }
+}
+
+async function growToForest(logModel, planet) {
+    try {
+        // Wait for seed model to load
+        await seedModelLoadPromise;
+
+        // Get the log's position and normal
+        const logPos = logModel.position.clone();
+        const surfaceNormal = logPos.clone().normalize();
+
+        // Remove the log model
+        planet.remove(logModel);
+
+        // Create a collectible forest at the same position
+        const forestItem = seedModelProto.clone(true);
+        forestItem.gemType = 'forest';
+        
+        // Apply scaling
+        const treeScale = 0.5; // Match seed model scale
+        forestItem.scale.set(treeScale, treeScale, treeScale);
+
+        // Position and Align
+        const modelUp = new THREE.Vector3(0, 1, 0);
+        const alignmentQuaternion = new THREE.Quaternion();
+        alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
+        forestItem.quaternion.copy(alignmentQuaternion);
+
+        // Calculate the correct position
+        const planetRadius = planet.geometry.parameters.radius;
+        const verticalOffset = 0.1;
+        const finalPos = surfaceNormal.multiplyScalar(planetRadius + verticalOffset);
+        forestItem.position.copy(finalPos);
+        forestItem.originalPosition = finalPos.clone();
+
+        // Add to planet
+        planet.add(forestItem);
+
+        // Add to seedGems array for collision detection
+        const itemData = { 
+            gem: forestItem, 
+            type: 'seeds',
+            seedsToGive: config.SEEDS_PER_FOREST // Store how many seeds this forest gives
+        };
+        seedGems.push(itemData);
+
+    } catch (error) {
+        console.error("Error growing to forest:", error);
+    }
 }

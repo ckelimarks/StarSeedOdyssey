@@ -44,12 +44,16 @@ export function initScene() {
         throw new Error("Canvas element #game-canvas not found!");
     }
     try {
-        renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+        renderer = new THREE.WebGLRenderer({
+            canvas: canvas,
+            antialias: true,
+            // logarithmicDepthBuffer: true // <<< REVERTED: Disable logarithmic depth buffer
+        });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
         // Enable shadow mapping
         renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap; // <<< REVERT back to PCFSoft
     } catch (e) {
         console.error("Scene INIT: Error creating WebGLRenderer:", e);
         throw e; // Re-throw error to stop initialization
@@ -63,10 +67,13 @@ export function initScene() {
     const starLight = new THREE.PointLight(0xffffdd, 5, 4000, 1.5);
     starLight.position.copy(starPosition);
     starLight.castShadow = true;
-    starLight.shadow.mapSize.width = 2048;
-    starLight.shadow.mapSize.height = 2048;
+    // Increase shadow map resolution
+    starLight.shadow.mapSize.width = 4096; // <<< INCREASED from 2048
+    starLight.shadow.mapSize.height = 4096; // <<< INCREASED from 2048
     starLight.shadow.camera.near = 50;
-    starLight.shadow.camera.far = config.CAMERA_FAR; // Use far plane from config
+    starLight.shadow.camera.far = 1500; // <<< Relax shadow distance slightly
+    starLight.shadow.bias = -0.0001; // <<< RESTORE best bias for PCFSoft
+    starLight.shadow.normalBias = 0.01; // <<< ADD normal bias
     scene.add(starLight);
     
     const hemiLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 0.3);

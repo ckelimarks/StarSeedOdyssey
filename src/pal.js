@@ -150,7 +150,6 @@ export function initPal(playerMesh, parentObject) {
             if (window.loadedSounds?.palMovementSound?.buffer) {
                 palState.movementSound = window.loadedSounds.palMovementSound;
                 palState.mesh.add(palState.movementSound);
-                console.log("[Pal Sound] Attached movement sound to pal mesh.");
             } else {
                 console.warn("[Pal Sound] Pal movement sound not found in loadedSounds.");
             }

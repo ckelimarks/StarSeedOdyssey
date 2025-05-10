@@ -4,6 +4,7 @@ import Stats from 'https://esm.sh/three@0.128.0/examples/jsm/libs/stats.module.j
 import { EffectComposer } from 'https://esm.sh/three@0.128.0/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'https://esm.sh/three@0.128.0/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'https://esm.sh/three@0.128.0/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { BokehPass } from 'https://esm.sh/three@0.128.0/examples/jsm/postprocessing/BokehPass.js'; // <<< ADD DOF Import
 import { GLTFLoader } from 'https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader.js'; // <<< ADDED IMPORT
 // -----------------------------
 
@@ -13,7 +14,7 @@ import * as config from './config.js';
 // Import modules
 import { initScene } from './scene.js';
 import { initPlayer, updatePlayer, updatePathTrail, keyState, pathPoints } from './player.js';
-import { initPlanets, updateOrbits } from './planets.js';
+import { initPlanets, updateOrbits, addTerraformingTrees } from './planets.js';
 import { 
     initResources, 
     updateResources, 
@@ -52,6 +53,7 @@ console.log("main.js: Script start");
 // Module-level variables for core components
 let scene, camera, renderer, audioListener;
 let composer; // NEW: For post-processing
+let bokehPass; // <<< ADD DOF Pass variable
 let homePlanet;
 let planetsState = {}; // Populated by initPlanets
 let globalLowPassFilter = null; // <<< NEW: For system view audio effect
@@ -324,7 +326,6 @@ function handleTerraformClick() {
 
 // --- NEW: Debug Action ---
 function handleDebugFillResources() {
-    console.log("DEBUG: Filling resources...");
     inventory.seeds = config.MAX_SEEDS;
     inventory.fuel = config.MAX_FUEL;
     updateInventoryDisplay(); // Update the UI
@@ -511,16 +512,17 @@ async function init() {
         );
         composer.addPass(bloomPass);
 
-        // --- NEW: Add Outline Pass ---
-        // outlinePass = new OutlinePass( new THREE.Vector2( window.innerWidth, window.innerHeight ), scene, camera );
-        // outlinePass.edgeStrength = 3.0;
-        // outlinePass.edgeGlow = 0.5;
-        // outlinePass.edgeThickness = 1.0;
-        // outlinePass.pulsePeriod = 0;
-        // outlinePass.visibleEdgeColor.set('#ffffff');
-        // outlinePass.hiddenEdgeColor.set('#190a05');
-        // composer.addPass( outlinePass );
-        // ---------------------------
+        // --- NEW: Add Bokeh (Depth of Field) Pass ---
+        bokehPass = new BokehPass( scene, camera, {
+            focus: 10.0,      // Initial focus distance (adjust later)
+            aperture: 0.000125, // <<< FURTHER REDUCED aperture
+            maxblur: 0.00125,  // <<< FURTHER REDUCED maxblur
+            width: window.innerWidth,
+            height: window.innerHeight
+        } );
+        // bokehPass.needsSwap = true; // May or may not be needed depending on pass order
+        composer.addPass( bokehPass );
+        // -------------------------------------------
 
         console.log("Main INIT: Post-processing composer and passes initialized.");
         // -------------------------------------------
@@ -1252,16 +1254,21 @@ function animate() {
     }
     // ------------------------------------
     
+    // Update player movement first
     updatePlayer(deltaTime, camera, homePlanet, planetsState);
+    
+    // Then update path trail
     if (typeof updatePathTrail === 'function') { 
         updatePathTrail(window.playerState?.mesh, homePlanet);
     }
-    // Check if player mesh exists before updating resources (it's loaded async)
+    
+    // Then handle resource collection
     if (window.playerState?.mesh) {
         updateResources(scene, window.playerState.mesh, homePlanet, audioListener, deltaTime);
     }
+    
     const landingInfo = updateRocket(deltaTime);
-    updatePal(deltaTime, window.playerState?.mesh, homePlanet); // Update call with args
+    updatePal(deltaTime, window.playerState?.mesh, homePlanet);
 
     // --- NEW: Update Enemy ---
     if (enemyState && enemyState.isInitialized) {
@@ -1323,6 +1330,9 @@ function animate() {
                 console.log(`   Original: #${planetData.originalColor.getHexString()}, Current: #${planetData.mesh.material.color.getHexString()}, Target: #${_tempColor.setHex(targetColor).getHexString()}`);
                 // <<< END Log >>>
                 planetData.mesh.material.color.lerpColors(planetData.originalColor, _tempColor.setHex(targetColor), alpha);
+                
+                // Add trees during terraforming
+                addTerraformingTrees(planetData.mesh, alpha);
                 
                 if (alpha >= 1.0) {
                     console.log(`ColorLerp: Terraforming COMPLETE for ${planetName}.`); // <<< ADD LOG
@@ -1693,6 +1703,34 @@ function animate() {
     // --- Update Mini-Map ---
     updateMiniMap(); // Call the map update function
     // -----------------------
+
+    // --- Dynamically Update DOF Focus --- <<< NEW
+    if (bokehPass) {
+        let targetPosition = _vec3; // Use temp vector
+        let distanceToTarget = 100; // Default large distance
+
+        if (isCameraFocusingPlanet && cameraFocusTarget) { // Focusing on a planet (terraform/debug)
+            cameraFocusTarget.getWorldPosition(targetPosition);
+        } else if (isRocketActive() && rocketMesh) { // Following rocket
+            rocketMesh.getWorldPosition(targetPosition);
+        } else if (window.playerState?.mesh) { // Following player (default)
+            window.playerState.mesh.getWorldPosition(targetPosition);
+        } else {
+            targetPosition = null; // No clear target
+        }
+
+        if (targetPosition) {
+            distanceToTarget = camera.position.distanceTo(targetPosition);
+        }
+        
+        // Update focus distance (can add smoothing later if needed)
+        // Clamp focus to avoid extreme values
+        bokehPass.uniforms[ 'focus' ].value = THREE.MathUtils.clamp(distanceToTarget, 5, 1000);
+        
+        // Optional: Adjust aperture based on distance? (e.g., less blur far away)
+        // bokehPass.uniforms[ 'aperture' ].value = baseAperture * (1 - Math.min(distanceToTarget / 1000, 1) * 0.5);
+    }
+    // --- END DOF Update ---
 
     // --- Render Scene --- Render using composer
     if (composer && scene && camera) { // Check composer exists

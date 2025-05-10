@@ -206,4 +206,49 @@ export function updateOrbits(planetsState, deltaTime) {
         
         mesh.position.set(newX, 0, newZ);
     }
+}
+
+// Add trees during terraforming
+export function addTerraformingTrees(planetMesh, alpha) {
+    // Only add trees at certain alpha thresholds to avoid too many trees
+    const thresholds = [0.2, 0.4, 0.6, 0.8];
+    const currentThreshold = thresholds.find(t => alpha >= t && alpha < t + 0.1);
+    
+    if (currentThreshold) {
+        // Add a few trees at this threshold
+        const numTrees = 3; // Number of trees to add at each threshold
+        const planetRadius = planetMesh.geometry.parameters.radius;
+        
+        for (let i = 0; i < numTrees; i++) {
+            // Get random position on planet surface
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(2 * Math.random() - 1);
+            const x = planetRadius * Math.sin(phi) * Math.cos(theta);
+            const y = planetRadius * Math.sin(phi) * Math.sin(theta);
+            const z = planetRadius * Math.cos(phi);
+            
+            const position = new THREE.Vector3(x, y, z);
+            const surfaceNormal = position.clone().normalize();
+            
+            // Create tree
+            if (seedModelProto) {
+                const tree = seedModelProto.clone(true);
+                tree.scale.set(0.5, 0.5, 0.5);
+                
+                // Align tree to surface
+                const modelUp = new THREE.Vector3(0, 1, 0);
+                const alignmentQuaternion = new THREE.Quaternion();
+                alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
+                tree.quaternion.copy(alignmentQuaternion);
+                
+                // Position tree
+                const verticalOffset = 0.1;
+                const finalPos = surfaceNormal.multiplyScalar(planetRadius + verticalOffset);
+                tree.position.copy(finalPos);
+                
+                // Add to planet
+                planetMesh.add(tree);
+            }
+        }
+    }
 } 

@@ -140,7 +140,7 @@ body {
 /* Example: div containing boost meter */
 #boost-meter-container { /* Assuming an ID or use appropriate selector */
      z-index: 100;
-}
+} 
 
 /* --- Red Damage Flash Overlay --- */
 #damage-overlay {
