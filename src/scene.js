@@ -32,13 +32,70 @@ function createStarfield(starCount = 5000, radius = 5000) {
 export function initScene() {
     console.log("Scene INIT: Initializing scene, camera, renderer, lights...");
     scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
 
-    // --- Camera Setup ---
-    const aspect = window.innerWidth / window.innerHeight;
-    camera = new THREE.PerspectiveCamera(config.CAMERA_FOV, aspect, config.CAMERA_NEAR, config.CAMERA_FAR);
-    // Initial position set later based on player
+    // Create camera
+    camera = new THREE.PerspectiveCamera(
+        config.CAMERA_FOV,
+        window.innerWidth / window.innerHeight,
+        config.CAMERA_NEAR,
+        config.CAMERA_FAR
+    );
+    
+    // Find the home planet
+    const homePlanet = config.planetConfigs.find(p => p.isHome);
+    if (homePlanet) {
+        // Calculate planet's position based on its orbital parameters
+        const planetX = homePlanet.orbitalDistance * Math.cos(homePlanet.initialAngle);
+        const planetZ = homePlanet.orbitalDistance * Math.sin(homePlanet.initialAngle);
+        
+        // Start camera closer to the planet
+        const startDistance = homePlanet.radius * 6; // Start even closer
+        const finalDistance = homePlanet.radius * 12; // End at a closer distance
+        
+        // Set initial camera position
+        camera.position.set(
+            planetX + startDistance * 0.8,
+            homePlanet.radius * 2,
+            planetZ + startDistance * 0.8
+        );
+        camera.lookAt(new THREE.Vector3(planetX, 0, planetZ));
 
-    // --- Renderer Setup ---
+        // Animate camera to final position
+        const startTime = Date.now();
+        const duration = 5000; // 5 seconds animation (slower)
+
+        function animateCamera() {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // Ease out cubic for smooth deceleration
+            const eased = 1 - Math.pow(1 - progress, 3);
+            
+            const currentDistance = startDistance + (finalDistance - startDistance) * eased;
+            const currentHeight = homePlanet.radius * 2 + (homePlanet.radius * 1.5) * eased;
+            
+            camera.position.set(
+                planetX + currentDistance * 0.8,
+                currentHeight,
+                planetZ + currentDistance * 0.8
+            );
+            camera.lookAt(new THREE.Vector3(planetX, 0, planetZ));
+            
+            if (progress < 1) {
+                requestAnimationFrame(animateCamera);
+            }
+        }
+        
+        // Start the animation
+        animateCamera();
+    } else {
+        // Fallback position if home planet not found
+        camera.position.set(0, 100, 200);
+        camera.lookAt(0, 0, 0);
+    }
+
+    // Create renderer
     const canvas = document.getElementById('game-canvas');
     if (!canvas) {
         throw new Error("Canvas element #game-canvas not found!");
@@ -60,63 +117,73 @@ export function initScene() {
     }
     
     // --- Lighting Setup ---
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+    const ambientLight = new THREE.AmbientLight(0x404040, 1);
     scene.add(ambientLight);
 
-    const starPosition = new THREE.Vector3(0, 0, 0);
-    const starLight = new THREE.PointLight(0xffffdd, 5, 4000, 1.5);
-    starLight.position.copy(starPosition);
-    starLight.castShadow = true;
+    const sunLight = new THREE.PointLight(0xffffdd, 5, 4000, 1.5);
+    sunLight.position.set(0, 0, 0);
+    sunLight.castShadow = true;
     // Increase shadow map resolution
-    starLight.shadow.mapSize.width = 4096; // <<< INCREASED from 2048
-    starLight.shadow.mapSize.height = 4096; // <<< INCREASED from 2048
-    starLight.shadow.camera.near = 50;
-    starLight.shadow.camera.far = 1500; // <<< Relax shadow distance slightly
-    starLight.shadow.bias = -0.0001; // <<< RESTORE best bias for PCFSoft
-    starLight.shadow.normalBias = 0.01; // <<< ADD normal bias
-    scene.add(starLight);
+    sunLight.shadow.mapSize.width = 4096;
+    sunLight.shadow.mapSize.height = 4096;
+    sunLight.shadow.camera.near = 50;
+    sunLight.shadow.camera.far = 1500;
+    sunLight.shadow.bias = -0.0001;
+    sunLight.shadow.normalBias = 0.01;
+    scene.add(sunLight);
     
     const hemiLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 0.3);
     scene.add(hemiLight);
 
     // --- Star Object (Loading GLTF Model) ---
-    // star = createSphere(config.STAR_RADIUS, 0xffff00, starPosition, 'star'); // REMOVED old sphere creation
-    // scene.add(star); // REMOVED old sphere add
-
     const loader = new GLTFLoader();
     loader.load(
         'models/sun_model/scene.gltf',
         (gltf) => {
             console.log("Scene INIT: Sun GLTF loaded successfully.");
             const sunModel = gltf.scene;
-            sunModel.position.copy(starPosition); // Position at origin (0,0,0)
             
-            // --- Adjust Scale --- (Start with 1, tweak as needed)
-            const sunScale =0.1; // Adjust this value to resize the sun model
+            // Create a container for the sun model and light
+            const sunContainer = new THREE.Group();
+            sunContainer.position.set(0, 0, 0);
+            
+            // Add the model to the container
+            sunModel.position.set(0, 0, 0);
+            const sunScale = 0.1;
             sunModel.scale.set(sunScale, sunScale, sunScale);
+            sunContainer.add(sunModel);
+            
+            // Add the container to the scene
+            scene.add(sunContainer);
+            star = sunContainer;
 
-            // Add the model to the scene
-            scene.add(sunModel);
-            star = sunModel; // Assign loaded model to the 'star' variable if needed elsewhere
-
-            // --- Parent the PointLight to the Sun Model ---
-            // Remove light from scene first if it was already added (it was)
-            scene.remove(starLight);
-            // Set light's local position (relative to sun model)
-            starLight.position.set(0, 0, 0); // Place light at the model's origin
-            sunModel.add(starLight); // Add light as a child of the sun model
-            console.log("Scene INIT: PointLight parented to Sun GLTF.");
+            // --- Parent the PointLight to the Sun Container ---
+            scene.remove(sunLight);
+            sunLight.position.set(0, 0, 0);
+            sunContainer.add(sunLight);
+            console.log("Scene INIT: PointLight parented to Sun container.");
 
         },
-        undefined, // onProgress callback
+        undefined,
         (error) => {
             console.error('Scene INIT: Error loading Sun GLTF model:', error);
-            // Fallback: Add the original sphere back if loading fails?
             console.warn("Scene INIT: Falling back to sphere geometry for Sun.");
-            star = createSphere(config.STAR_RADIUS, 0xffff00, starPosition, 'sun_fallback'); 
-            scene.add(star);
-            // Add light directly to scene if sphere fallback
-            scene.add(starLight);
+            // Create a container for the fallback sphere and light
+            const sunContainer = new THREE.Group();
+            sunContainer.position.set(0, 0, 0);
+            
+            // Add the fallback sphere to the container
+            const fallbackSphere = createSphere(config.STAR_RADIUS, 0xffff00, new THREE.Vector3(0, 0, 0), 'sun_fallback');
+            sunContainer.add(fallbackSphere);
+            
+            // Add the container to the scene
+            scene.add(sunContainer);
+            star = sunContainer;
+            
+            // Add light to the container
+            scene.remove(sunLight);
+            sunLight.position.set(0, 0, 0);
+            sunContainer.add(sunLight);
         }
     );
     // ----------------------------------------

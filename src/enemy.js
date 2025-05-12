@@ -88,6 +88,7 @@ let enemyState = {
     movementSound: null, // Added for movement sound
     deactivateNodeSoundTemplate: null, // Added for node deactivation sound
     roarSound: null, // Added for roar sound
+    isPaused: false, // Added for pause state
 };
 // ------------------
 
@@ -462,10 +463,8 @@ export function initEnemy(scene, homePlanet, planetsData, audioListener) { // <<
  * @param {THREE.Vector3} playerVelocity The player's current velocity vector.
  * @param {function} triggerScreenShakeFunc Function to call to trigger screen shake.
  */
-export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreenShakeFunc) { // <<< ADD triggerScreenShakeFunc
-    if (!enemyState.isInitialized || !enemyState.mesh || !homePlanetRef || !playerMesh || !planetsStateRef) {
-        return; // Exit if enemy not ready
-    }
+export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreenShake) {
+    if (!enemyState || !enemyState.isInitialized || enemyState.isPaused) return; // Add isPaused check
     
     const now = performance.now(); // <<< ADD BACK: Get current time for shader uniforms
 
@@ -539,13 +538,12 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
                 enemyState.patrolTimer = 0;
                 enemyState.sleepTimer = 0;
                 enemyState.statusText = "Sleeping"; // Initial status, timer updates below
-                // playAppropriateMusic(false); // <<< REMOVED from here
+                
                 // Stop sounds, dim light, idle anim
                 if (movementSound && enemyState.isMovingSoundPlaying) movementSound.stop();
                 enemyState.isMovingSoundPlaying = false;
                 if (enemyState.spotLight) enemyState.spotLight.intensity = 0.1;
                 if (enemyState.actions.walk) {
-                    // enemyState.actions.walk.fadeOut(FADE_DURATION); // No need to fade if pausing
                     enemyState.actions.walk.timeScale = 0; 
                 }
                 // --- NEW: Traverse and hide meshes --- 
@@ -573,7 +571,7 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
                 enemyState.timeInSpotlight = 0; // Reset timer (still good practice)
                 enemyState.timeSincePlayerSeen = 0; // Reset hunt give up timer too
                 enemyState.statusText = "Hunting (Player Visible)"; // Update status
-                triggerScreenShakeFunc(0.6, 1.0); // <<< Increased Duration (was 0.3)
+                triggerScreenShake(0.6, 1.0); // <<< Increased Duration (was 0.3)
 
                 // Fade from walk/idle to walk
                 if (enemyState.actions.walk) {
@@ -673,7 +671,7 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
                 enemyState.timeInSpotlight = 0; // Reset timer
                 enemyState.timeSincePlayerSeen = 0; // Reset hunt give up timer
                 enemyState.statusText = "Hunting (Target Visible)";
-                triggerScreenShakeFunc(0.6, 1.0); // <<< Increased Duration (was 0.3)
+                triggerScreenShake(0.6, 1.0); // <<< Increased Duration (was 0.3)
 
                 // Fade from idle to walk
                 if (enemyState.actions.walk) {
@@ -1282,7 +1280,16 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
              enemyState.statusText = "Deactivated"; 
              playAppropriateMusic(false); // Start fade to normal music immediately
              despawnDeactivationNodes();
-             triggerScreenShakeFunc(1.2, 1.5); // <<< Increased Duration (was 0.7)
+             triggerScreenShake(1.2, 1.5); // <<< Increased Duration (was 0.7)
+
+             // --- NEW: Regenerate Player Health ---
+             if (window.playerState) {
+                 window.playerState.health = window.playerState.maxHealth;
+                 window.updatePlayerHealthUI(); // Use through window object
+                 console.log("[Health] Player health fully regenerated after enemy deactivation!");
+             }
+             // ---------------------------------
+
              // Stop movement/scan sounds, pause animation, dim light etc.
              if (movementSound && enemyState.isMovingSoundPlaying) movementSound.stop();
              if (scanningSound && enemyState.isScanningSoundPlaying) scanningSound.stop();
@@ -1550,23 +1557,36 @@ function despawnDeactivationNodes() {
     
     console.log("[Nodes] Despawning all deactivation nodes...");
     enemyState.deactivationNodes.forEach(nodeData => {
-        // <<< REMOVE BoxHelper if it exists >>>
-        if (nodeData.mesh?.userData?.boxHelper && nodeData.mesh.userData.boxHelper.parent) {
-             nodeData.mesh.userData.boxHelper.parent.remove(nodeData.mesh.userData.boxHelper);
-             nodeData.mesh.userData.boxHelper.dispose(); // Dispose helper geometry
-             delete nodeData.mesh.userData.boxHelper; // Clean up reference
-        }
-        // <<< END REMOVE BoxHelper >>>
-
+        // Stop any playing sounds
         if (nodeData.spawnSound && nodeData.spawnSound.isPlaying) {
             nodeData.spawnSound.stop();
             console.log(`[Node Sound] Stopped spawn sound for node ${nodeData.id}`);
         }
-        if (nodeData.mesh && nodeData.mesh.parent) {
-            nodeData.mesh.parent.remove(nodeData.mesh); // Remove from scene
-            // Basic cleanup, might need more for complex models
+
+        // Remove indicator circle if it exists
+        if (nodeData.indicatorCircle) {
+            if (nodeData.indicatorCircle.parent) {
+                nodeData.indicatorCircle.parent.remove(nodeData.indicatorCircle);
+            }
+            if (nodeData.indicatorCircle.geometry) {
+                nodeData.indicatorCircle.geometry.dispose();
+            }
+            if (nodeData.indicatorCircle.material) {
+                nodeData.indicatorCircle.material.dispose();
+            }
+            nodeData.indicatorCircle = null;
+        }
+
+        // Remove the node mesh and clean up its resources
+        if (nodeData.mesh) {
+            if (nodeData.mesh.parent) {
+                nodeData.mesh.parent.remove(nodeData.mesh);
+            }
+            // Clean up all geometries and materials
             nodeData.mesh.traverse(child => {
-                if (child.geometry) child.geometry.dispose();
+                if (child.geometry) {
+                    child.geometry.dispose();
+                }
                 if (child.material) {
                     if (Array.isArray(child.material)) {
                         child.material.forEach(m => m.dispose());
@@ -1576,10 +1596,19 @@ function despawnDeactivationNodes() {
                 }
             });
         }
+
+        // Clean up animation mixer if it exists
+        if (nodeData.mixer) {
+            nodeData.mixer.stopAllAction();
+            nodeData.mixer = null;
+        }
     });
-    enemyState.deactivationNodes = []; // Clear the array
-    enemyState.activationTimers = {}; // Clear timers
-} 
+
+    // Clear all node data
+    enemyState.deactivationNodes = [];
+    enemyState.activationTimers = {};
+    console.log("[Nodes] All nodes and resources cleaned up.");
+}
 
 // <<< ADD BACK MISSING FUNCTION >>>
 /**

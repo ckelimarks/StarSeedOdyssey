@@ -452,11 +452,80 @@ function onDocumentMouseMove( event ) {
 }
 // --------------------------------------------
 
+// --- NEW: Start Screen State ---
+let isStartScreen = true; // Track if we're on the start screen
+let startScreenOverlayElement = null; // Reference to the overlay element
+// -------------------------
+
 // --- Initialize the application ---
 async function init() {
     console.log("Main INIT: Starting initialization...");
 
     try {
+        // --- Step 0: Get UI Containers ---
+        mapContainer = document.getElementById('map-container');
+        if (!mapContainer) {
+            console.warn("Map container element not found. Mini-map will not be initialized.");
+        }
+
+        // --- NEW: Create Start Screen Overlay ---
+        startScreenOverlayElement = document.createElement('div');
+        startScreenOverlayElement.id = 'start-screen-overlay';
+        startScreenOverlayElement.style.position = 'absolute';
+        startScreenOverlayElement.style.top = '0';
+        startScreenOverlayElement.style.left = '0';
+        startScreenOverlayElement.style.width = '100%';
+        startScreenOverlayElement.style.height = '100%';
+        startScreenOverlayElement.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        startScreenOverlayElement.style.display = 'flex';
+        startScreenOverlayElement.style.flexDirection = 'column';
+        startScreenOverlayElement.style.justifyContent = 'center';
+        startScreenOverlayElement.style.alignItems = 'center';
+        startScreenOverlayElement.style.zIndex = '1000';
+        startScreenOverlayElement.style.color = 'white';
+        startScreenOverlayElement.style.fontFamily = 'Helvetica, Arial, sans-serif';
+        
+        // Add title
+        const titleElement = document.createElement('h1');
+        titleElement.textContent = 'StarSeed';
+        titleElement.style.fontSize = '48px';
+        titleElement.style.marginBottom = '20px';
+        titleElement.style.textShadow = '0 0 10px rgba(255, 255, 255, 0.5)';
+        startScreenOverlayElement.appendChild(titleElement);
+        
+        // Add start button
+        const startButton = document.createElement('button');
+        startButton.textContent = 'Start Game';
+        startButton.style.padding = '15px 30px';
+        startButton.style.fontSize = '24px';
+        startButton.style.backgroundColor = '#4CAF50';
+        startButton.style.color = 'white';
+        startButton.style.border = 'none';
+        startButton.style.borderRadius = '5px';
+        startButton.style.cursor = 'pointer';
+        startButton.style.transition = 'background-color 0.3s';
+        startButton.onmouseover = () => startButton.style.backgroundColor = '#45a049';
+        startButton.onmouseout = () => startButton.style.backgroundColor = '#4CAF50';
+        startButton.onclick = () => {
+            isStartScreen = false;
+            startScreenOverlayElement.style.display = 'none';
+            
+            // Unpause enemy and start music
+            if (enemyState) {
+                enemyState.isPaused = false;
+            }
+            playAppropriateMusic(false);
+        };
+        startScreenOverlayElement.appendChild(startButton);
+        
+        document.body.appendChild(startScreenOverlayElement);
+        // ----------------------------------------
+
+        // Get other UI elements
+        gameOverOverlayElement = document.getElementById('gameOverOverlay');
+        playerHealthElement = document.getElementById('player-health');
+        damageOverlayElement = document.getElementById('damage-overlay');
+
         // --- Step 0: Get UI Containers ---
         mapContainer = document.getElementById('map-container');
         if (!mapContainer) {
@@ -682,6 +751,10 @@ async function init() {
 
         // Initialize Enemy (Requires planet data)
         enemyState = initEnemy(scene, homePlanet, planetsState, audioListener); // <<< Pass audioListener
+        if (enemyState) {
+            // Pause enemy updates until game starts
+            enemyState.isPaused = true;
+        }
         console.log("Main INIT: Enemy initialization requested.");
 
         // --- Step 6: Initialize Rocket ---
@@ -1006,13 +1079,9 @@ async function init() {
         console.log("Main INIT: Initialization complete.");
 
         // --- Start Initial Music (REMOVED DELAY) --- 
-        // console.log("Main INIT: Attempting to play initial music with a delay..."); // Remove log
-        // setTimeout(() => {
-        //     console.log("Main INIT: Delay complete, calling playAppropriateMusic.");
-        //     playAppropriateMusic(false); 
-        // }, 500); // Delay by 500ms (0.5 seconds)
-        playAppropriateMusic(false); // <<< Call directly after init completes
-        console.log("Main INIT: Called playAppropriateMusic for initial theme."); // Add confirmation log
+        // Don't start music until game starts
+        // playAppropriateMusic(false); // <<< Call directly after init completes
+        console.log("Main INIT: Music will start when game begins.");
         // -------------------------------------------------
 
     } catch (error) {
@@ -1217,24 +1286,42 @@ function animate() {
     const now = performance.now(); // performance.now() for general timing
     const audioNow = audioListener?.context?.currentTime ?? 0; // Web Audio time for audio scheduling
 
+    // Update stats
+    stats.begin();
 
-    // --- Update Filter Transition --- 
-    if (isFilterTransitioning && globalLowPassFilter && audioNow > 0) {
-        const elapsed = audioNow - filterTransitionStartTime;
-        let progress = Math.min(elapsed / FILTER_TRANSITION_DURATION, 1.0);
+    // Update camera position and orientation
+    if (!isStartScreen && !isCameraFocusingPlanet) { // Only update if game has started and not focusing planet
+        updateCamera(camera, window.playerState?.visualMesh, cameraFocusTarget, isCameraFocusingPlanet, deltaTime);
+    }
+
+    // --- Apply Screen Shake AFTER camera update ---
+    if (shakeTimer > 0) {
+        const decayFactor = shakeTimer / shakeDuration; // Linear decay
+        const currentIntensity = shakeIntensity * decayFactor;
         
-        // Optional: Add easing function (e.g., ease-in-out)
-        // progress = 0.5 - 0.5 * Math.cos(progress * Math.PI); 
+        // Generate random offsets
+        const offsetX = (Math.random() - 0.5) * 2 * currentIntensity;
+        const offsetY = (Math.random() - 0.5) * 2 * currentIntensity;
 
-        const currentFreq = filterStartFrequency + (filterTargetFrequency - filterStartFrequency) * progress;
-        globalLowPassFilter.frequency.value = currentFreq; // Set value directly
+        // Apply offset relative to camera's current orientation
+        // Ensure camera's matrixWorld is up-to-date
+        camera.updateMatrixWorld(); 
+        const cameraRight = _vec3.setFromMatrixColumn(camera.matrixWorld, 0);
+        const cameraUp = _vector3_2.setFromMatrixColumn(camera.matrixWorld, 1);
+        
+        camera.position.addScaledVector(cameraRight, offsetX);
+        camera.position.addScaledVector(cameraUp, offsetY);
 
-        if (progress >= 1.0) {
-            isFilterTransitioning = false;
-            console.log(`Audio Filter: Transition finished at ${currentFreq.toFixed(0)}Hz`);
+        shakeTimer -= deltaTime;
+        if (shakeTimer <= 0) {
+            shakeTimer = 0;
+            shakeIntensity = 0;
+            shakeDuration = 0;
+            console.log("[Screen Shake] Finished.");
+            // No need to reset position if offsets were relative
         }
     }
-    // ------------------------------
+    // ---------------------------------------------
 
     // --- Initialize Pal (once player is ready) ---
     if (!isPalInitialized && window.playerState?.mesh && homePlanet) {
@@ -1268,6 +1355,16 @@ function animate() {
     }
     
     const landingInfo = updateRocket(deltaTime);
+    
+    // --- NEW: Handle Sun Collision ---
+    if (landingInfo && landingInfo.type === 'sun_collision') {
+        console.log("Rocket destroyed by sun collision!");
+        // The rocket has already been reset and explosion effect created
+        // The loss message has already been shown
+        // No need to do anything else here
+    }
+    // --- END Sun Collision Handler ---
+    
     updatePal(deltaTime, window.playerState?.mesh, homePlanet);
 
     // --- NEW: Update Enemy ---
@@ -1397,27 +1494,30 @@ function animate() {
         console.log(`Main received landing info: ${landingInfo.payload} seeds on ${landingInfo.name}`);
         const landedPlanet = planetsState[landingInfo.name];
         if (landedPlanet) {
+            // Update seeds delivered
             landedPlanet.seedsDelivered += landingInfo.payload;
             // Clamp value just in case
             landedPlanet.seedsDelivered = Math.min(landedPlanet.seedsDelivered, landedPlanet.seedsRequired);
             
-            // Update UI
+            // Update UI immediately
             updateSeedBankUI(landingInfo.name, landedPlanet.seedsDelivered, landedPlanet.seedsRequired);
             
-            // Check terraform condition
+            // Check terraform condition and update button
             const canTerraform = landedPlanet.seedsDelivered >= landedPlanet.seedsRequired;
             updateTerraformButton(canTerraform, landingInfo.name);
 
-            // --- Show Mission Success Message --- 
+            // Show success message
             if (missionStatusElement) {
-                missionStatusElement.textContent = 'Mission Successful'; // Keep this specific to rocket delivery
-                missionStatusElement.style.color = '#00ff00'; // Original green
+                missionStatusElement.textContent = `Mission Successful: ${landingInfo.payload} seeds delivered!`;
+                missionStatusElement.style.color = '#00ff00';
                 missionStatusElement.style.display = 'block';
                 setTimeout(() => {
                     if (missionStatusElement) missionStatusElement.style.display = 'none';
-                }, 1500); // Display for 1.5 seconds
+                }, 2000); // Display for 2 seconds
             }
 
+            // Clear landing info after processing
+            landingInfo = null;
         } else {
             console.error(`Landed planet ${landingInfo.name} not found in state!`);
         }
@@ -1530,40 +1630,29 @@ function animate() {
     }
 
     // --- Update Camera ---
+    if (!isStartScreen) { // Only update camera if game has started
     if (isCameraFocusingPlanet && cameraFocusTarget) { // Terraform focus takes priority
         // --- Direct Camera Control for Planet Focus ---
         cameraFocusTarget.getWorldPosition(_planetFocusWorldPos); 
         _desiredCamPos.addVectors(_planetFocusWorldPos, terraformViewOffset); 
-        // <<< REMOVE Logs for Desired Position >>>
-        // console.log(`[Focus Cam] PlanetPos: ...`); 
-        // console.log(`[Focus Cam] Offset: ...`); 
-        // console.log(`[Focus Cam] TargetPos:...`); 
-        // const camPosBefore = camera.position.clone(); 
-        camera.position.lerp(_desiredCamPos, config.CAMERA_SMOOTH_FACTOR * 0.5); // <<< REVERTED Lerp Factor AGAIN
-        // console.log(`[Focus Cam] CamPos Before Lerp: ...`); 
-        // console.log(`[Focus Cam] CamPos After Lerp:  ...`); 
-        // <<< END REMOVE Logs >>>
+        camera.position.lerp(_desiredCamPos, config.CAMERA_SMOOTH_FACTOR * 0.8); // Increased from 0.5 to 0.8 for smoother movement
         camera.lookAt(_planetFocusWorldPos);
 
         // --- Check if camera is in position to start terraform ---
         const distSq = camera.position.distanceToSquared(_desiredCamPos);
-        const arrivalThresholdSq = 50000.0; // <<< INCREASED Threshold SIGNIFICANTLY
-        // Log distance check (Uncommented for debugging)
+        const arrivalThresholdSq = 100000.0; // Increased from 50000.0 to give more room for arrival
         console.log(`CameraFocus: distSq = ${distSq.toFixed(2)}, thresholdSq = ${arrivalThresholdSq}`); 
         
         if (!isCameraInTerraformPosition && distSq < arrivalThresholdSq) { 
              console.log(`CameraFocus: Camera arrived at focus point (distSq: ${distSq.toFixed(2)}).`); 
              isCameraInTerraformPosition = true;
-             // --- Play Terraform Success Sound ON CAMERA ARRIVAL --- 
-             playTerraformSuccessSound(); // <<< UNCOMMENT Call Here AGAIN
-             // -----------------------------------------------------
+                playTerraformSuccessSound();
              const targetPlanetName = cameraFocusTarget.name;
              if (planetsState[targetPlanetName]) {
                 isTerraforming[targetPlanetName] = true;
                 terraformStartTime[targetPlanetName] = now; 
-                console.log(`CameraFocus: Starting terraforming for ${targetPlanetName}`); // LOG 4
+                    console.log(`CameraFocus: Starting terraforming for ${targetPlanetName}`);
              } else { 
-                console.error(`CameraFocus: Cannot start terraform - Planet data for ${targetPlanetName} not found.`);
                 isCameraFocusingPlanet = false;
                 cameraFocusTarget = null;
                 isCameraInTerraformPosition = false;
@@ -1574,122 +1663,24 @@ function animate() {
         const targetPlanetName = cameraFocusTarget.name; 
         if (planetsState[targetPlanetName] && isTerraforming[targetPlanetName] === false) { 
              if (isCameraFocusingPlanet) { 
-                 console.log(`CameraFocus: Terraforming for ${targetPlanetName} completed. Releasing camera focus.`); // LOG 7
+                    console.log(`CameraFocus: Terraforming for ${targetPlanetName} completed. Releasing camera focus.`);
                  isCameraFocusingPlanet = false;
                  cameraFocusTarget = null;
                  isCameraInTerraformPosition = false;
              }
         }
-
-    } else if (isDebugCameraActive) { // NEW: Check for top-down debug view
-        const systemCenter = _vec3.set(0, 0, 0); // Use temp vector for center
-        const desiredPosition = _desiredCamPos.set(0, 1500, 0); // Y-up, far above
-
-        // Smoothly move camera to desired position
-        camera.position.lerp(desiredPosition, config.CAMERA_SMOOTH_FACTOR * 0.5); // Slower lerp for system view
-        
-        // Aim camera down at the center
+        } else if (isDebugCameraActive) { // Debug view
+            const systemCenter = _vec3.set(0, 0, 0);
+            const desiredPosition = _desiredCamPos.set(0, 1500, 0);
+            camera.position.lerp(desiredPosition, config.CAMERA_SMOOTH_FACTOR * 0.5);
         camera.lookAt(systemCenter);
-        
-        // Explicitly set UP direction to avoid issues when looking straight down
-        // Use negative Z as UP for a typical top-down view (X right, Z up)
         camera.up.set(0, 0, -1); 
-
-        // --- Raycasting for Planet Hover ---
-        raycaster.setFromCamera( mouse, camera );
-        const intersects = raycaster.intersectObjects( intersectablePlanets, true ); // Check descendants
-
-        let currentIntersectedGroup = null;
-        if (intersects.length > 0) {
-            // Find the closest intersected planet GROUP
-            for(const intersect of intersects) {
-                let obj = intersect.object;
-                while (obj.parent && !(intersectablePlanets.includes(obj))) {
-                    obj = obj.parent;
-                }
-                if (intersectablePlanets.includes(obj)) {
-                    currentIntersectedGroup = obj;
-                    break;
-                }
-            }
-        }
-
-        // --- Handle Hover State Change ---
-        if (currentIntersectedGroup) {
-            if (hoveredPlanet?.mesh !== currentIntersectedGroup) {
-                // --- New Hover Start ---
-                hoveredPlanet = { 
-                    mesh: currentIntersectedGroup,
-                    name: currentIntersectedGroup.name 
-                };
-                // Update Tooltip Text (only needs to happen once on hover start)
-                const planetData = planetsState[hoveredPlanet.name];
-                if (planetData && planetTooltipElement) {
-                    planetTooltipElement.textContent = 
-                        `${hoveredPlanet.name}\nSeeds: ${planetData.seedsDelivered} / ${planetData.seedsRequired}`;
-                }
-            }
-            // --- ELSE: Still hovering the same planet ---
-            
-        } else { // No intersection this frame
-            if ( hoveredPlanet !== null ) {
-                // --- Hover End ---
-                hoveredPlanet = null;
-                if (planetTooltipElement) planetTooltipElement.style.display = 'none'; 
-                if (planetOutlineElement) planetOutlineElement.style.display = 'none';
-            }
-        }
-        // --- End Hover State Change ---
-        
-        // --- Update Outline and Tooltip Position (if hovering) ---
-        if (hoveredPlanet && planetOutlineElement && planetTooltipElement) {
-            const planetCenterWorld = _vec3.copy(hoveredPlanet.mesh.position); // Use the group's position
-            let planetRadiusWorld = 25; // Default guess
-            // Get radius from config if possible
-            if (planetsState[hoveredPlanet.name]?.config?.radius) {
-                planetRadiusWorld = planetsState[hoveredPlanet.name].config.radius;
-            } else if (hoveredPlanet.mesh.geometry?.parameters?.radius) {
-                 // Fallback for sphere meshes (though Verdant Minor is group)
-                 planetRadiusWorld = hoveredPlanet.mesh.geometry.parameters.radius;
-            }
-
-            // Project center and edge points along X-axis to find screen diameter
-            const centerScreen = planetCenterWorld.clone().project(camera);
-            const edgeWorldX = planetCenterWorld.clone().add(new THREE.Vector3(planetRadiusWorld, 0, 0));
-            const edgeScreenX = edgeWorldX.clone().project(camera);
-            
-            // Calculate screen radius based on X distance
-            const screenRadius = Math.abs(edgeScreenX.x - centerScreen.x) * (window.innerWidth / 2);
-            const screenDiameter = screenRadius * 2;
-
-            // Calculate screen position of center
-            const screenX = (centerScreen.x * 0.5 + 0.5) * window.innerWidth;
-            const screenY = (-centerScreen.y * 0.5 + 0.5) * window.innerHeight;
-
-            // Style and position the outline div
-            planetOutlineElement.style.width = `${screenDiameter}px`;
-            planetOutlineElement.style.height = `${screenDiameter}px`;
-            planetOutlineElement.style.left = `${screenX - screenRadius}px`;
-            planetOutlineElement.style.top = `${screenY - screenRadius}px`;
-            planetOutlineElement.style.display = 'block';
-            
-            // Position Tooltip
-            planetTooltipElement.style.left = `${screenX + 15}px`; 
-            planetTooltipElement.style.top = `${screenY - 15}px`; 
-            planetTooltipElement.style.display = 'block';
-        }
-        // --- End Update Outline/Tooltip ---
-
-        // --- End Raycasting Logic Block ---
-
-    } else if (isRocketActive()) { // Default rocket following
+        } else if (isRocketActive()) { // Rocket following
         updateCamera(camera, rocketMesh, homePlanet); 
     } else { // Default player following
-        // Make sure playerState.mesh exists before calling updateCamera
         if (window.playerState?.mesh) {
         updateCamera(camera, window.playerState.mesh, homePlanet);
-        } else {
-            // Optional: Handle camera position if player isn't ready (e.g., fixed view)
+            }
         }
     }
 
@@ -1754,71 +1745,6 @@ function animate() {
          }
          stats.end();
     }
-
-    // --- Apply Screen Shake BEFORE camera update ---
-    if (shakeTimer > 0) {
-        const decayFactor = shakeTimer / shakeDuration; // Linear decay
-        const currentIntensity = shakeIntensity * decayFactor;
-        
-        // Generate random offsets
-        const offsetX = (Math.random() - 0.5) * 2 * currentIntensity;
-        const offsetY = (Math.random() - 0.5) * 2 * currentIntensity;
-
-        // Apply offset relative to camera's current orientation
-        // Ensure camera's matrixWorld is up-to-date
-        camera.updateMatrixWorld(); 
-        const cameraRight = _vec3.setFromMatrixColumn(camera.matrixWorld, 0);
-        const cameraUp = _vector3_2.setFromMatrixColumn(camera.matrixWorld, 1);
-        
-        camera.position.addScaledVector(cameraRight, offsetX);
-        camera.position.addScaledVector(cameraUp, offsetY);
-
-        shakeTimer -= deltaTime;
-        if (shakeTimer <= 0) {
-            shakeTimer = 0;
-            shakeIntensity = 0;
-            shakeDuration = 0;
-            console.log("[Screen Shake] Finished.");
-            // No need to reset position if offsets were relative
-        }
-    }
-    // ---------------------------------------------
-
-    // Update camera position and orientation
-    // <<< ADD Conditional Execution for Default Camera Update >>>
-    if (!isCameraFocusingPlanet) { // Only update default if NOT focusing planet
-        updateCamera(camera, window.playerState?.visualMesh, cameraFocusTarget, isCameraFocusingPlanet, deltaTime);
-    }
-    // <<< END Conditional >>>
-
-    // --- Apply Screen Shake AFTER camera update ---
-    if (shakeTimer > 0) {
-        const decayFactor = shakeTimer / shakeDuration; // Linear decay
-        const currentIntensity = shakeIntensity * decayFactor;
-        
-        // Generate random offsets
-        const offsetX = (Math.random() - 0.5) * 2 * currentIntensity;
-        const offsetY = (Math.random() - 0.5) * 2 * currentIntensity;
-
-        // Apply offset relative to camera's current orientation
-        // Ensure camera's matrixWorld is up-to-date
-        camera.updateMatrixWorld(); 
-        const cameraRight = _vec3.setFromMatrixColumn(camera.matrixWorld, 0);
-        const cameraUp = _vector3_2.setFromMatrixColumn(camera.matrixWorld, 1);
-        
-        camera.position.addScaledVector(cameraRight, offsetX);
-        camera.position.addScaledVector(cameraUp, offsetY);
-
-        shakeTimer -= deltaTime;
-        if (shakeTimer <= 0) {
-            shakeTimer = 0;
-            shakeIntensity = 0;
-            shakeDuration = 0;
-            console.log("[Screen Shake] Finished.");
-            // No need to reset position if offsets were relative
-        }
-    }
-    // ---------------------------------------------
 
     // --- Update Hit Cooldown Timer ---
     if (playerHitCooldownTimer > 0) {
@@ -1924,6 +1850,25 @@ function animate() {
         }
     }
     // -----------------------------------------------------
+
+    // Update rocket if active
+    if (isRocketActive()) {
+        const rocketUpdate = updateRocket(deltaTime);
+        if (rocketUpdate) {
+            if (rocketUpdate.type === 'sun_collision') {
+                // Camera will stay in place during sun collision sequence
+                isCameraFocusingPlanet = false;
+                isCameraInTerraformPosition = false;
+            } else if (rocketUpdate.type === 'sun_collision_complete') {
+                // Camera can return to normal after sequence completes
+                isCameraFocusingPlanet = false;
+                isCameraInTerraformPosition = false;
+            } else if (rocketUpdate.type === 'landing') {
+                // Handle normal landing sequence
+                handleRocketLanding(rocketUpdate);
+            }
+        }
+    }
 }
 
 // Add composer AND map resize to window resize handler
@@ -1986,14 +1931,10 @@ function updatePlayerHealthUI() {
     const healthFillElement = document.getElementById('player-health-fill');
     const healthTextElement = document.getElementById('player-health-text');
     
-    // <<< REMOVE Redundant Debug Log >>>
-    // console.log(`[updatePlayerHealthUI] Check values: window.playerState.health = ${window.playerState?.health}, config.PLAYER_MAX_HEALTH = ${config?.PLAYER_MAX_HEALTH}`);
-    
     // Ensure playerState and elements exist
-    // <<< ADD check for playerState.maxHealth >>>
     if (window.playerState && typeof window.playerState.health === 'number' && typeof window.playerState.maxHealth === 'number' && healthFillElement && healthTextElement) {
         const currentHealth = window.playerState.health;
-        const maxHealth = window.playerState.maxHealth; // <<< READ from playerState
+        const maxHealth = window.playerState.maxHealth;
         
         // Prevent division by zero and ensure health is not negative
         const clampedHealth = Math.max(0, currentHealth);
@@ -2022,9 +1963,12 @@ function updatePlayerHealthUI() {
          if (healthFillElement) {
              healthFillElement.style.width = '0%';
         }
-         console.warn("updatePlayerHealthUI: playerState, health, maxHealth, or health elements not available."); // Updated warning
+         console.warn("updatePlayerHealthUI: playerState, health, maxHealth, or health elements not available.");
     }
 }
+
+// Expose the function to the window object
+window.updatePlayerHealthUI = updatePlayerHealthUI;
 // ----------------------------------
 
 // --- NEW: Game Over Restart Handler ---
@@ -2033,3 +1977,39 @@ function handleGameOverKeyPress() {
     window.location.reload(); 
 }
 // -------------------------------------
+
+function handleGameOver() {
+    isGameOver = true;
+    
+    // Apply low-pass filter to all audio
+    if (window.audioListenerRef) {
+        const lowPassFilter = window.audioListenerRef.context.createBiquadFilter();
+        lowPassFilter.type = 'lowpass';
+        lowPassFilter.frequency.value = 200;
+        window.audioListenerRef.setFilter(lowPassFilter);
+    }
+    
+    // Play game over sound
+    playGameOverSound();
+    
+    // Show game over overlay
+    if (gameOverOverlayElement) {
+        gameOverOverlayElement.style.display = 'flex';
+    }
+    
+    // Show start screen overlay
+    if (startScreenOverlayElement) {
+        startScreenOverlayElement.style.display = 'flex';
+        // Update button text
+        const startButton = startScreenOverlayElement.querySelector('button');
+        if (startButton) {
+            startButton.textContent = 'Play Again';
+        }
+    }
+    
+    // Trigger screen shake
+    triggerScreenShake(1.0, 1000);
+    
+    // Stop movement sounds
+    stopMovementSounds();
+}

@@ -1,5 +1,6 @@
 import * as THREE from 'https://esm.sh/three@0.128.0';
 import * as config from './config.js';
+import { seedModelProto, seedModelLoadPromise } from './resources.js';
 
 // Module-level variables for planet data
 const planets = {}; // Stores { mesh, config, currentAngle }
@@ -209,14 +210,25 @@ export function updateOrbits(planetsState, deltaTime) {
 }
 
 // Add trees during terraforming
-export function addTerraformingTrees(planetMesh, alpha) {
+export async function addTerraformingTrees(planetMesh, alpha) {
     // Only add trees at certain alpha thresholds to avoid too many trees
-    const thresholds = [0.2, 0.4, 0.6, 0.8];
+    const thresholds = [0.3, 0.6]; // Reduced from [0.2, 0.4, 0.6, 0.8] to just two thresholds
     const currentThreshold = thresholds.find(t => alpha >= t && alpha < t + 0.1);
     
     if (currentThreshold) {
-        // Add a few trees at this threshold
-        const numTrees = 3; // Number of trees to add at each threshold
+        // Ensure seed model is loaded
+        if (!seedModelProto) {
+            console.warn("Seed model not loaded yet, waiting...");
+            try {
+                await seedModelLoadPromise;
+            } catch (error) {
+                console.error("Failed to load seed model:", error);
+                return;
+            }
+        }
+
+        // Add just one tree at this threshold
+        const numTrees = 1; // Reduced from 3 to 1 tree per threshold
         const planetRadius = planetMesh.geometry.parameters.radius;
         
         for (let i = 0; i < numTrees; i++) {
@@ -231,24 +243,25 @@ export function addTerraformingTrees(planetMesh, alpha) {
             const surfaceNormal = position.clone().normalize();
             
             // Create tree
-            if (seedModelProto) {
-                const tree = seedModelProto.clone(true);
-                tree.scale.set(0.5, 0.5, 0.5);
-                
-                // Align tree to surface
-                const modelUp = new THREE.Vector3(0, 1, 0);
-                const alignmentQuaternion = new THREE.Quaternion();
-                alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
-                tree.quaternion.copy(alignmentQuaternion);
-                
-                // Position tree
-                const verticalOffset = 0.1;
-                const finalPos = surfaceNormal.multiplyScalar(planetRadius + verticalOffset);
-                tree.position.copy(finalPos);
-                
-                // Add to planet
-                planetMesh.add(tree);
-            }
+            const tree = seedModelProto.clone(true);
+            tree.scale.set(0.3, 0.3, 0.3);
+            
+            // Align tree to surface
+            const modelUp = new THREE.Vector3(0, 1, 0);
+            const alignmentQuaternion = new THREE.Quaternion();
+            alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
+            tree.quaternion.copy(alignmentQuaternion);
+            
+            // Position tree
+            const verticalOffset = 0.1;
+            const finalPos = surfaceNormal.multiplyScalar(planetRadius + verticalOffset);
+            tree.position.copy(finalPos);
+            
+            // Add to planet
+            planetMesh.add(tree);
+            
+            // Log tree creation for debugging
+            console.log(`Added tree at position: (${finalPos.x.toFixed(2)}, ${finalPos.y.toFixed(2)}, ${finalPos.z.toFixed(2)})`);
         }
     }
 } 

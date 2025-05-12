@@ -157,7 +157,12 @@ export const PAL_ARRIVAL_SOUND_COOLDOWN = 3.0; // NEW: Minimum seconds between a
 
 // Planet Configuration
 export const NUM_PLANETS = 3;
-export const SYSTEM_RADIUS = 200; // Radius of the circular path planets orbit on 
+
+// Export planets as an object for easier access
+export const PLANETS = planetConfigs.reduce((acc, planet) => {
+    acc[planet.name] = planet;
+    return acc;
+}, {});
 
 // --- Debugging ---
 export const DEBUG_SHOW_PLAYER_AXES = false; // Toggle visibility of player's local axes 

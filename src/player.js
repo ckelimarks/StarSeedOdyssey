@@ -178,7 +178,11 @@ function initPlayer(scene, homePlanet, audioListener) {
             // --- Refactor: Create Parent Wrapper (playerRoot) ---
             const playerRoot = new THREE.Object3D();
             playerRoot.name = 'playerRoot'; // Name the parent
-            playerRoot.position.copy(playerLocalPosition); // Position the PARENT
+            
+            // Calculate position beside the rocket
+            const rocketOffset = new THREE.Vector3(2, 0, 0); // Offset to the right of the rocket
+            const finalPosition = playerLocalPosition.clone().add(rocketOffset);
+            playerRoot.position.copy(finalPosition); // Position the PARENT
             // -------------------------------------------------
 
             // --- Create Visual Model (playerMesh) ---

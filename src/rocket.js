@@ -5,9 +5,19 @@ import {
     ROCKET_HEIGHT,
     ROCKET_COLOR,
     ROCKET_TRAVEL_DURATION,
-    ROCKET_LANDING_LINGER // Add linger duration
+    ROCKET_LANDING_LINGER,
+    STAR_RADIUS // NEW: Import STAR_RADIUS
 } from './config.js';
-import { playRocketLaunchSound, playImpactSound, inventory, updateInventoryDisplay } from './resources.js'; // Import sound object, impact function, inventory, and UI update
+import { 
+    playRocketLaunchSound, 
+    playImpactSound, 
+    inventory, 
+    updateInventoryDisplay,
+    audioListenerRef,
+    THEME_MUSIC_VOLUME,
+    DANGER_THEME_VOLUME,
+    playSunImpactSound
+} from './resources.js'; // Import sound object, impact function, inventory, and UI update
 import { createRocketTrailEmitter, updateParticlesCPU } from './particle_effects.js'; // <<< NEW IMPORT
 
 let sceneRef = null;
@@ -15,6 +25,7 @@ let rocketMesh = null;
 let homePlanetRef = null; // Store reference to home planet
 let rocketEmitterState = null; // <<< NEW: State for particle emitter
 let rocketFlameLight = null; // <<< NEW: Light for the flame
+let sunCollisionSphere = null; // NEW: Debug sphere for sun collision
 // let rocketVelocity = new THREE.Vector3(); // No longer needed
 
 // --- New State Variables for Lerp Travel ---
@@ -35,6 +46,8 @@ let finalWorldQuat = new THREE.Quaternion(); // Store final orientation for re-p
 let finalPlanetWorldPos = new THREE.Vector3(); // Store planet position at landing
 let finalPlanetWorldQuat = new THREE.Quaternion(); // Store planet orientation at landing
 let isPreLaunching = false; // <<< NEW: Flag for pre-launch effects
+let isSunCollisionSequence = false; // NEW: Flag for sun collision sequence
+let sunCollisionStartTime = 0; // NEW: Track when sun collision started
 
 // --- Temporary Vectors ---
 const _targetPos = new THREE.Vector3(); // Planet Center
@@ -112,6 +125,19 @@ function initRocket(scene, homePlanet) {
     rocketMesh.scale.set(5, 5, 5); // Scale the rocket mesh up to make it more visible
     homePlanet.add(rocketMesh); // ADDED to homePlanet
     console.log('Rocket initialized (simplified travel, attached to planet).');
+
+    // --- NEW: Create Sun Collision Debug Sphere ---
+    const sunCollisionGeometry = new THREE.SphereGeometry(STAR_RADIUS * 1.25, 32, 32);
+    const sunCollisionMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ff00,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.0  // Make it invisible but keep it for later
+    });
+    sunCollisionSphere = new THREE.Mesh(sunCollisionGeometry, sunCollisionMaterial);
+    sunCollisionSphere.position.set(0, 0, 0);
+    scene.add(sunCollisionSphere);
+    // -------------------------------------------
 
     // --- Load GLTF Model ---
     loader.load(
@@ -335,12 +361,66 @@ function updateRocket(deltaTime) {
             console.log("Landing sequence complete. Triggering reset.");
             const landingInfo = { name: targetPlanet?.config?.name || 'Unknown', payload: payloadSeeds };
             
-            resetRocket(); // Call the reset function
+            // Store landing info before reset
+            const finalLandingInfo = { ...landingInfo };
             
-            return landingInfo; // Return landing info AFTER reset
+            // Reset rocket state
+            resetRocket();
+            
+            // Return the stored landing info
+            return finalLandingInfo;
         }
         return undefined; // Still lingering
     }
+
+    // --- NEW: Sun Collision Check (Updated) ---
+    if (isActive && rocketMesh && !isLandingSequence) {
+        const sunPosition = new THREE.Vector3(0, 0, 0); // Sun is at origin
+        rocketMesh.getWorldPosition(_currentPos);
+        const distanceToSun = _currentPos.distanceTo(sunPosition);
+        const sunCollisionRadius = STAR_RADIUS * 1.25 + ROCKET_RADIUS;
+
+        // Debug log for collision check
+        console.log(`Distance to sun: ${distanceToSun.toFixed(2)}, Collision radius: ${sunCollisionRadius.toFixed(2)}`);
+
+        if (distanceToSun < sunCollisionRadius) {
+            if (!isSunCollisionSequence) {
+                isSunCollisionSequence = true;
+                sunCollisionStartTime = performance.now();
+                
+                // Fade out music
+                fadeMusicForSunExplosion();
+                
+                // Play sun impact sound
+                playSunImpactSound();
+                
+                // Show loss message
+                showLossMessage(inventory.rockets, inventory.seeds);
+                
+                // Create explosion effect
+                createExplosionEffect(rocketMesh.position);
+                
+                // Reset rocket state after delay
+                setTimeout(() => {
+                    resetRocket();
+                    isSunCollisionSequence = false;
+                }, 3000);
+            }
+            return;
+        }
+    }
+
+    // Check if we're in sun collision sequence and enough time has passed
+    if (isSunCollisionSequence) {
+        const collisionElapsedTime = (performance.now() - sunCollisionStartTime) / 1000;
+        if (collisionElapsedTime >= 3.0) { // Wait 3 seconds before resetting
+            resetRocket();
+            isSunCollisionSequence = false;
+            return { type: 'sun_collision_complete' };
+        }
+        return { type: 'sun_collision_in_progress' };
+    }
+    // --- END Sun Collision Check ---
 
     // --- NEW: Update Particle System (Moved Earlier) ---
     if (rocketEmitterState) {
@@ -472,6 +552,145 @@ function isRocketApproachingLanding() {
 
 function isRocketStationed() {
     return isStationed;
+}
+
+// --- NEW: Explosion Effect Function ---
+function createExplosionEffect(position) {
+    // Create a particle system for the explosion
+    const particleCount = 100;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const velocities = [];
+    
+    // Initialize particles
+    for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        positions[i3] = position.x;
+        positions[i3 + 1] = position.y;
+        positions[i3 + 2] = position.z;
+        
+        // Random velocity in all directions
+        velocities.push(
+            (Math.random() - 0.5) * 2,
+            (Math.random() - 0.5) * 2,
+            (Math.random() - 0.5) * 2
+        );
+    }
+    
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    
+    // Create material with orange/red color
+    const material = new THREE.PointsMaterial({
+        color: 0xff4400,
+        size: 2,
+        transparent: true,
+        opacity: 1,
+        blending: THREE.AdditiveBlending
+    });
+    
+    const particles = new THREE.Points(geometry, material);
+    sceneRef.add(particles);
+    
+    // Animate particles
+    const startTime = performance.now();
+    const duration = 2000; // 2 seconds
+    
+    function animateExplosion() {
+        const elapsed = performance.now() - startTime;
+        const progress = elapsed / duration;
+        
+        if (progress >= 1) {
+            sceneRef.remove(particles);
+            return;
+        }
+        
+        const positions = particles.geometry.attributes.position.array;
+        
+        for (let i = 0; i < particleCount; i++) {
+            const i3 = i * 3;
+            positions[i3] += velocities[i3] * 0.1;
+            positions[i3 + 1] += velocities[i3 + 1] * 0.1;
+            positions[i3 + 2] += velocities[i3 + 2] * 0.1;
+        }
+        
+        particles.geometry.attributes.position.needsUpdate = true;
+        material.opacity = 1 - progress;
+        
+        requestAnimationFrame(animateExplosion);
+    }
+    
+    animateExplosion();
+}
+
+// --- NEW: Loss Message Function ---
+function showLossMessage(rockets, seeds) {
+    const messageElement = document.createElement('div');
+    messageElement.style.position = 'fixed';
+    messageElement.style.top = '50%';
+    messageElement.style.left = '50%';
+    messageElement.style.transform = 'translate(-50%, -50%)';
+    messageElement.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+    messageElement.style.color = '#ff4400';
+    messageElement.style.padding = '20px';
+    messageElement.style.borderRadius = '10px';
+    messageElement.style.fontSize = '24px';
+    messageElement.style.fontFamily = 'Arial, sans-serif';
+    messageElement.style.zIndex = '1000';
+    
+    let message = 'Rocket destroyed by sun! Lost:';
+    if (rockets) message += `\n${rockets} Rockets`;
+    if (seeds) message += `\n${seeds} Seeds`;
+    
+    messageElement.textContent = message;
+    document.body.appendChild(messageElement);
+    
+    // Remove message after 3 seconds
+    setTimeout(() => {
+        document.body.removeChild(messageElement);
+    }, 3000);
+}
+
+// Add new function for music fade handling
+function fadeMusicForSunExplosion() {
+    const themeSound = window.loadedSounds?.themeMusicSound;
+    const dangerSound = window.loadedSounds?.dangerMusicSound;
+    const audioCtx = audioListenerRef?.context;
+    
+    if (!themeSound || !dangerSound || !audioCtx) return;
+    
+    const now = audioCtx.currentTime;
+    const fadeDuration = 0.5; // Half second fade
+    const fadeEndTime = now + fadeDuration;
+    
+    // Fade out both tracks
+    if (themeSound.gain?.gain) {
+        themeSound.gain.gain.cancelScheduledValues(now);
+        themeSound.gain.gain.setValueAtTime(themeSound.gain.gain.value, now);
+        themeSound.gain.gain.linearRampToValueAtTime(0, fadeEndTime);
+    }
+    if (dangerSound.gain?.gain) {
+        dangerSound.gain.gain.cancelScheduledValues(now);
+        dangerSound.gain.gain.setValueAtTime(dangerSound.gain.gain.value, now);
+        dangerSound.gain.gain.linearRampToValueAtTime(0, fadeEndTime);
+    }
+    
+    // Schedule fade back in after explosion
+    setTimeout(() => {
+        const resumeTime = audioCtx.currentTime;
+        const resumeEndTime = resumeTime + fadeDuration;
+        
+        // Fade back in both tracks
+        if (themeSound.gain?.gain) {
+            themeSound.gain.gain.cancelScheduledValues(resumeTime);
+            themeSound.gain.gain.setValueAtTime(0, resumeTime);
+            themeSound.gain.gain.linearRampToValueAtTime(THEME_MUSIC_VOLUME, resumeEndTime);
+        }
+        if (dangerSound.gain?.gain) {
+            dangerSound.gain.gain.cancelScheduledValues(resumeTime);
+            dangerSound.gain.gain.setValueAtTime(0, resumeTime);
+            dangerSound.gain.gain.linearRampToValueAtTime(DANGER_THEME_VOLUME, resumeEndTime);
+        }
+    }, 3000); // Wait 3 seconds (matching explosion duration)
 }
 
 // Export the mesh itself for camera tracking, and new functions
