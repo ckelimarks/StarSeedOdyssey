@@ -79,6 +79,7 @@ let nodeProximityLoopSound = null;
 let singleNodeActivationSound = null;
 let playerCollideSound = null;
 let gameOverSound = null;
+let sunImpactSound = null; // NEW: Sound for sun collision
 // --------------------------------
 
 // --- NEW: Music Volumes & Fade --- 
@@ -442,59 +443,59 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
     
     // Initialize floating numbers
     initFloatingNumbers();
-    
+
     // --- Load Seed (Tree) Model Asynchronously ---
     const seedLoader = new GLTFLoader();
     seedModelLoadPromise = new Promise((resolve, reject) => {
-        seedLoader.load(
+    seedLoader.load(
             'models/tree/tree.gltf',
-            function (gltf) { // Success callback
-                console.log('Seed (Tree) GLTF model loaded.');
-                seedModelProto = gltf.scene;
+        function (gltf) { // Success callback
+            console.log('Seed (Tree) GLTF model loaded.');
+            seedModelProto = gltf.scene;
 
-                // Ensure correct material properties if needed (apply to children)
-                seedModelProto.traverse((child) => {
-                    if (child.isMesh) {
-                        child.castShadow = true;
-                        child.receiveShadow = true;
-                    }
-                });
+            // Ensure correct material properties if needed (apply to children)
+            seedModelProto.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
 
                 resolve(seedModelProto);
-            },
-            undefined, // onProgress callback (optional)
-            function (error) { // Error callback
-                console.error('An error happened loading the seed (tree) GLTF:', error);
+        },
+        undefined, // onProgress callback (optional)
+        function (error) { // Error callback
+            console.error('An error happened loading the seed (tree) GLTF:', error);
                 reject(error);
-            }
-        );
+        }
+    );
     });
 
     // --- Load Mossy Log Model Asynchronously ---
     const logLoader = new GLTFLoader();
     mossyLogModelLoadPromise = new Promise((resolve, reject) => {
-        logLoader.load(
+    logLoader.load(
             'models/mossy_log/mossy_log.gltf',
-            function (gltf) { // Success callback
-                console.log('Mossy Log GLTF model loaded.');
-                mossyLogModelProto = gltf.scene;
+        function (gltf) { // Success callback
+            console.log('Mossy Log GLTF model loaded.');
+            mossyLogModelProto = gltf.scene;
 
-                // Ensure correct material properties and shadows
-                mossyLogModelProto.traverse((child) => {
-                    if (child.isMesh) {
-                        child.castShadow = false;
-                        child.receiveShadow = true;
-                    }
-                });
+            // Ensure correct material properties and shadows
+            mossyLogModelProto.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = false;
+                    child.receiveShadow = true;
+                }
+            });
 
                 resolve(mossyLogModelProto);
-            },
-            undefined, // onProgress callback (optional)
-            function (error) { // Error callback
-                console.error('An error happened loading the mossy log GLTF:', error);
+        },
+        undefined, // onProgress callback (optional)
+        function (error) { // Error callback
+            console.error('An error happened loading the mossy log GLTF:', error);
                 reject(error);
-            }
-        );
+        }
+    );
     });
 
     // Wait for models to load before generating items
@@ -513,88 +514,86 @@ function initResources(scene, homePlanet, planetsState, audioListener) {
     // --- Load Fuel Model Asynchronously ---
     const fuelLoader = new GLTFLoader(); // Use a separate constant name
     fuelModelLoadPromise = new Promise((resolve, reject) => {
-        fuelLoader.load(
-            'models/red_crystal/scene.gltf',
-            function (gltf) { // Success callback
-                console.log('Fuel crystal GLTF model loaded.');
-                // --- Create Offset Parent Prototype ---
-                const loadedModel = gltf.scene;
-                fuelModelProto = new THREE.Object3D(); // Create an empty parent
-                fuelModelProto.add(loadedModel); // Add the loaded crystal as a child
-                
-                // Offset the child model DOWNWARD relative to the parent origin
-                // Revert to assuming Y is up for the model
-                // Set offset to 0 assuming new model origin is at its base
-                const modelOffset = -50.4; 
-                loadedModel.position.set(0, modelOffset, 0); 
-                console.log(`Offsetting crystal model child by ${modelOffset} on Y.`);
-                // -------------------------------------
-                
-                // Ensure correct material properties if needed (apply to children)
-                fuelModelProto.traverse((child) => {
-                    if (child.isMesh) {
-                        child.castShadow = true;
-                        child.receiveShadow = true;
-                        // <<< ADD Transparency Settings >>>
-                        if (child.material) {
-                            child.material.transparent = true;
-                            child.material.opacity = 0.85; // <<< SET to 0.15 (85% transparent)
-                            child.material.needsUpdate = true; // Ensure changes apply
-                        }
-                        // <<< END Transparency Settings >>>
+    fuelLoader.load(
+        'models/red_crystal/scene.gltf',
+        function (gltf) { // Success callback
+            console.log('Fuel crystal GLTF model loaded.');
+            // --- Create Offset Parent Prototype ---
+            const loadedModel = gltf.scene;
+            fuelModelProto = new THREE.Object3D(); // Create an empty parent
+            fuelModelProto.add(loadedModel); // Add the loaded crystal as a child
+            
+            // Offset the child model DOWNWARD relative to the parent origin
+            // Revert to assuming Y is up for the model
+            // Set offset to 0 assuming new model origin is at its base
+            const modelOffset = -50.4; 
+            loadedModel.position.set(0, modelOffset, 0); 
+            console.log(`Offsetting crystal model child by ${modelOffset} on Y.`);
+            // -------------------------------------
+            
+            // Ensure correct material properties if needed (apply to children)
+            fuelModelProto.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    if (child.material) {
+                        child.material.transparent = true;
+                        child.material.opacity = 0.85;
+                        child.material.needsUpdate = true;
                     }
-                });
+                }
+            });
 
-                // --- Generate Fuel Items ONLY AFTER model is loaded ---
-                console.log('Generating fuel items using loaded crystal model...');
-        generateVisualResources(config.INITIAL_FUEL_ITEMS, config.FUEL_ITEM_COLOR, 'fuel', fuelItems, homePlanet, planetsState);
-                // ------------------------------------------------------
+            // --- Generate Fuel Items ONLY AFTER model is loaded ---
+            console.log('Generating fuel items using loaded crystal model...');
+    generateVisualResources(config.INITIAL_FUEL_ITEMS, config.FUEL_ITEM_COLOR, 'fuel', fuelItems, homePlanet, planetsState);
+            // ------------------------------------------------------
 
                 resolve(fuelModelProto);
-            },
-            undefined, // onProgress callback (optional)
-            function (error) { // Error callback
-                console.error('An error happened loading the fuel crystal GLTF:', error);
+        },
+        undefined, // onProgress callback (optional)
+        function (error) { // Error callback
+            console.error('An error happened loading the fuel crystal GLTF:', error);
                 reject(error);
-            }
-        );
+        }
+    );
     });
 
     // --- Load Tech Aperture (Purple Tree) Model Asynchronously --- // Keep loading, comment generation
     const techApertureLoader = new GLTFLoader(); // Renamed loader variable
     techApertureModelLoadPromise = new Promise((resolve, reject) => {
-        techApertureLoader.load(
-            'models/tech_aperture/tech_aperture.gltf', // Path remains the same
-            function (gltf) { // Success callback
-                console.log('Tech Aperture GLTF model loaded.'); // Updated log
-                // Store the prototype for later use
-                techApertureModelProto = gltf.scene; // <<< Store in a new variable
+    techApertureLoader.load(
+        'models/tech_aperture/tech_aperture.gltf', // Path remains the same
+        function (gltf) { // Success callback
+            console.log('Tech Aperture GLTF model loaded.'); // Updated log
+            // Store the prototype for later use
+            techApertureModelProto = gltf.scene; // <<< Store in a new variable
 
-                // Ensure correct material properties and shadows
-                techApertureModelProto.traverse((child) => {
-                    if (child.isMesh) {
-                        child.castShadow = false; // Disable casting shadows for this model
-                        child.receiveShadow = true;
-                    }
-                });
+            // Ensure correct material properties and shadows
+            techApertureModelProto.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = false; // Disable casting shadows for this model
+                    child.receiveShadow = true;
+                }
+            });
 
-                // Store animations if any (needed for later spawning)
-                techApertureModelAnimations = gltf.animations; // <<< Store animations
+            // Store animations if any (needed for later spawning)
+            techApertureModelAnimations = gltf.animations; // <<< Store animations
 
-                // --- Generate Decorative Trees ONLY AFTER model is loaded --- // <<< COMMENT OUT
-                // console.log('Generating decorative purple trees...');
-                // Pass gltf.animations here!
-                // generateDecorativeItems(config.NUM_PURPLE_TREES, purpleTreeModelProto, gltf.animations, config.PURPLE_TREE_SCALE, homePlanet, planetsState);
-                // -----------------------------------------------------------
+            // --- Generate Decorative Trees ONLY AFTER model is loaded --- // <<< COMMENT OUT
+            // console.log('Generating decorative purple trees...');
+            // Pass gltf.animations here!
+            // generateDecorativeItems(config.NUM_PURPLE_TREES, purpleTreeModelProto, gltf.animations, config.PURPLE_TREE_SCALE, homePlanet, planetsState);
+            // -----------------------------------------------------------
 
                 resolve(techApertureModelProto);
-            },
-            undefined, // onProgress callback (optional)
-            function (error) { // Error callback
-                console.error('An error happened loading the tech aperture GLTF:', error); // Updated log
+        },
+        undefined, // onProgress callback (optional)
+        function (error) { // Error callback
+            console.error('An error happened loading the tech aperture GLTF:', error); // Updated log
                 reject(error);
-            }
-        );
+        }
+    );
     });
 
     // Wait for models to load before generating items
@@ -908,8 +907,8 @@ function updateResources(scene, playerSphere, homePlanet, audioListener, deltaTi
                         }
                     }
                 } else if (itemGroup.type === 'seeds') {
-                    // Check if already full before collecting
-                    const wasSeedsFull = inventory.seeds >= config.MAX_SEEDS;
+                     // Check if already full before collecting
+                     const wasSeedsFull = inventory.seeds >= config.MAX_SEEDS;
                     
                     // Random chance to get only 1 seed (20% chance)
                     const seedsToGive = Math.random() < 0.2 ? 1 : (itemGroup.seedsToGive || 1);
@@ -920,7 +919,7 @@ function updateResources(scene, playerSphere, homePlanet, audioListener, deltaTi
                     if (actualSeedsGained > 0) {
                         inventory.seeds = newSeedCount;
                         playSeedPickupSound(); // Plays treefall sound
-                        updateInventoryDisplay();
+                        updateInventoryDisplay(); 
                         
                         // Create floating number at the stored position
                         createFloatingNumber(actualSeedsGained, collectionPosition, 0x00cc44); // Green color for seeds
@@ -976,27 +975,27 @@ function updateResources(scene, playerSphere, homePlanet, audioListener, deltaTi
                 const potentialWorldPos = homePlanetRef.localToWorld(position.clone());
                 const playerDistSq = _playerWorldPos.distanceToSquared(potentialWorldPos);
                 const safeFromPlayer = playerDistSq > (config.COLLECTION_DISTANCE * config.COLLECTION_DISTANCE * 4);
-                const combinedItems = [...seedGems, ...fuelItems];
+                const combinedItems = [...seedGems, ...fuelItems]; 
 
                 if (!isTooCloseToOtherGems(position, combinedItems, config.MIN_GEM_DISTANCE) && safeFromPlayer) {
                     let newItem;
                     if(collectedItem.type === 'seeds') {
-                         if (!seedModelProto) {
+                          if (!seedModelProto) {
                              console.warn("Seed (Tree) prototype not loaded, cannot respawn seed yet.");
                              return;
-                         }
-                         newItem = seedModelProto.clone(true);
-                         newItem.gemType = collectedItem.type;
+                          }
+                          newItem = seedModelProto.clone(true);
+                          newItem.gemType = collectedItem.type;
                          const treeScale = .5;
-                         newItem.scale.set(treeScale, treeScale, treeScale);
-                         const surfaceNormal = position.clone().normalize();
+                          newItem.scale.set(treeScale, treeScale, treeScale);
+                          const surfaceNormal = position.clone().normalize();
                          const modelUp = new THREE.Vector3(0, 1, 0);
-                         const alignmentQuaternion = new THREE.Quaternion();
-                         alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
-                         newItem.quaternion.copy(alignmentQuaternion);
-                         const planetRadius = homePlanetRef.geometry.parameters.radius;
+                          const alignmentQuaternion = new THREE.Quaternion();
+                          alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
+                          newItem.quaternion.copy(alignmentQuaternion);
+                          const planetRadius = homePlanetRef.geometry.parameters.radius;
                          const verticalOffset = 0.1;
-                         const finalPos = position.clone().normalize().multiplyScalar(planetRadius + verticalOffset);
+                          const finalPos = position.clone().normalize().multiplyScalar(planetRadius + verticalOffset);
                          newItem.position.copy(finalPos);
                          newItem.originalPosition = finalPos.clone();
 
@@ -1009,24 +1008,24 @@ function updateResources(scene, playerSphere, homePlanet, audioListener, deltaTi
                          seedGems.push(itemData);
                          homePlanetRef.add(newItem);
                          regeneratedIndices.push(index);
-                    } else if (collectedItem.type === 'fuel') {
-                        if (!fuelModelProto) { // Check if model is loaded before respawning fuel
-                            console.warn("Fuel prototype not loaded, cannot respawn fuel yet.");
-                            return; // Skip this respawn attempt
-                        }
-                        // Respawn fuel using the same logic as initial generation
-                        newItem = fuelModelProto.clone(true);
-                        newItem.gemType = collectedItem.type;
-                        const fuelScale = 0.05; // Use consistent scale
-                        newItem.scale.set(fuelScale, fuelScale, fuelScale);
-                        const surfaceNormal = position.clone().normalize();
-                        const modelUp = new THREE.Vector3(0, 1, 0); // Y-up
-                        const alignmentQuaternion = new THREE.Quaternion();
-                        alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
-                        newItem.quaternion.copy(alignmentQuaternion);
-                        newItem.position.copy(position); // Position parent origin (offset is baked into child)
-                        newItem.originalPosition = position.clone(); // Store surface position
-                    } else {
+                     } else if (collectedItem.type === 'fuel') {
+                         if (!fuelModelProto) { // Check if model is loaded before respawning fuel
+                             console.warn("Fuel prototype not loaded, cannot respawn fuel yet.");
+                             return; // Skip this respawn attempt
+                         }
+                         // Respawn fuel using the same logic as initial generation
+                         newItem = fuelModelProto.clone(true);
+                         newItem.gemType = collectedItem.type;
+                         const fuelScale = 0.05; // Use consistent scale
+                         newItem.scale.set(fuelScale, fuelScale, fuelScale);
+                         const surfaceNormal = position.clone().normalize();
+                         const modelUp = new THREE.Vector3(0, 1, 0); // Y-up
+                         const alignmentQuaternion = new THREE.Quaternion();
+                         alignmentQuaternion.setFromUnitVectors(modelUp, surfaceNormal);
+                         newItem.quaternion.copy(alignmentQuaternion);
+                         newItem.position.copy(position); // Position parent origin (offset is baked into child)
+                         newItem.originalPosition = position.clone(); // Store surface position
+                     } else {
                         console.warn("Unknown type in regen queue:", collectedItem.type);
                         return;
                     }
@@ -1391,15 +1390,15 @@ async function loadAudio(listener) { // <<< Mark as async
         { name: 'palMovementSound', path: 'sfx/pal/palmovement-sound.wav', volume: config.PAL_MOVE_SOUND_BASE_VOLUME, loop: true, type: 'PositionalAudio', refDistance: config.PAL_SOUND_REF_DISTANCE, rolloffFactor: config.PAL_SOUND_ROLLOFF_FACTOR, log: 'Pal movement sound loaded (Positional).' },
         { name: 'palArrivalSound', path: 'sfx/pal/yes.wav', volume: 0.8, loop: false, type: 'PositionalAudio', refDistance: config.PAL_SOUND_REF_DISTANCE, rolloffFactor: config.PAL_SOUND_ROLLOFF_FACTOR, log: 'Pal arrival sound loaded.' },
         { name: 'playerJumpSound', path: 'sfx/jump-sound.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Player jump sound loaded.' }, // Corrected path
-        // { name: 'playerLandSound', path: 'sfx/land.mp3', volume: 0.5, loop: false, type: 'Audio', log: 'Player land sound loaded.' }, // File missing?
+        { name: 'playerLandSound', path: 'sfx/skid-sound.mp3', volume: 0.5, loop: false, type: 'Audio', log: 'Player land sound loaded.' }, // File missing?
         { name: 'inventoryFullSound', path: 'sfx/inventory-full.wav', volume: 0.6, loop: false, type: 'Audio', log: 'Inventory full sound loaded.' }, // <<< CORRECTED EXTENSION to .wav
-        // { name: 'enemyScanningSound', path: 'sfx/enemy/enemy-scanning.mp3', volume: 0.7, loop: true, type: 'Audio', log: 'Enemy scanning sound loaded.' }, // File missing?
+        { name: 'enemyScanningSound', path: 'sfx/enemy-scanning.mp3', volume: 0.7, loop: true, type: 'Audio', log: 'Enemy scanning sound loaded.' }, // File missing?
         { name: 'enemyRoarSound', path: 'sfx/enemyroar.mp3', volume: 0.9, loop: false, type: 'PositionalAudio', refDistance: 100, rolloffFactor: 1.2, log: 'Enemy roar sound loaded.' }, // Corrected path
         { name: 'terraformSuccessSound', path: 'sfx/terraformsucces.mp3', volume: 0.8, loop: false, type: 'Audio', log: 'Terraform success sound loaded.' }, // Corrected path (typo)
         { name: 'terraformReadySound', path: 'sfx/terraform-ready-sound.mp3', volume: 0.7, loop: false, type: 'Audio', log: 'Terraform ready sound loaded.' }, // Corrected path
         { name: 'nodeDeactivationSound', path: 'sfx/deactivatenodesound.wav', volume: 0.8, loop: false, type: 'PositionalAudio', refDistance: 50, rolloffFactor: 1, log: 'Node deactivation sound loaded (Positional).' }, // Corrected path
         { name: 'nodeSpawnLoopSound', path: 'sfx/nodesound.mp3', volume: 0.6, loop: true, type: 'PositionalAudio', refDistance: 50, rolloffFactor: 1, log: 'Node spawn loop sound loaded (Positional).' }, // Corrected path (assumed)
-        // { name: 'enemyMovementSound', path: 'sfx/enemy/spider-steps.mp3', volume: 0.5, loop: true, type: 'PositionalAudio', refDistance: 70, rolloffFactor: 1.1, log: 'Enemy movement sound loaded (Positional).' }, // File missing? (maybe robottanksound.mp3?)
+        { name: 'enemyMovementSound', path: 'sfx/robottanksound.mp3', volume: 0.5, loop: true, type: 'PositionalAudio', refDistance: 70, rolloffFactor: 1.1, log: 'Enemy movement sound loaded (Positional).' }, // File missing? (maybe robottanksound.mp3?)
         { name: 'slowdownSound', path: 'sfx/slowdown.mp3', volume: config.SLOWDOWN_SOUND_BASE_VOLUME, loop: false, type: 'Audio', log: 'Slowdown sound loaded.' },
         { name: 'gameOverSound', path: 'sfx/GameOver.wav', volume: 0.7, loop: false, type: 'Audio', log: 'Game over sound loaded.' },
         { name: 'alarmSirenSound', path: 'sfx/alarmsiren.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Alarm siren sound loaded.' }, // Corrected path & SET LOOP FALSE
@@ -1410,6 +1409,7 @@ async function loadAudio(listener) { // <<< Mark as async
         { name: 'dangerMusicSound', path: 'sfx/DangerTheme.mp3', volume: 0.6, loop: true, type: 'Audio', log: 'Danger theme sound loaded.' },
         // { name: 'inventoryFullSound', path: 'sfx/inventory-full.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Inventory full sound loaded.' }, // <<< UNCOMMENTED
         // { name: 'enemyScanningSound', path: 'sfx/enemy/enemy-scanning.mp3', volume: 0.7, loop: true, type: 'Audio', log: 'Enemy scanning sound loaded.' }, // File missing?
+        { name: 'sunImpactSound', path: 'sfx/sunImpact.mp3', volume: 0.8, loop: false, type: 'Audio', log: 'Sun impact sound loaded.' },
     ];
 
     // <<< NEW: Map config to promises using loadAsync >>>
@@ -1491,6 +1491,7 @@ async function loadAudio(listener) { // <<< Mark as async
                     case 'playerCollideSound': playerCollideSound = sound; break;
                     case 'themeMusicSound': themeMusicSound = sound; console.log(`[Debug LoadAudio] Assigned themeMusicSound: ${!!themeMusicSound}`); break; // <<< ADD Log
                     case 'dangerMusicSound': dangerMusicSound = sound; console.log(`[Debug LoadAudio] Assigned dangerMusicSound: ${!!dangerMusicSound}`); break; // <<< ADD Log
+                    case 'sunImpactSound': sunImpactSound = sound; break;
                     default: console.warn(`Sound name "${config.name}" not handled in module variable assignment.`);
                 }
                 // <<< END Assignment to module-level variable >>>
@@ -1830,9 +1831,18 @@ export {
     // --- Add model loading promises ---
     seedModelLoadPromise,
     mossyLogModelLoadPromise,
+    fuelModelLoadPromise,
+    techApertureModelLoadPromise,
+    // --- Add music volume constants ---
+    THEME_MUSIC_VOLUME,
+    DANGER_THEME_VOLUME,
+    // --- Add audio listener reference ---
+    audioListenerRef,
+    // --- Add sun impact sound function ---
+    playSunImpactSound,
     // --- Add resource arrays ---
     seedGems // Export the seedGems array
-}; 
+};
 
 // Floating Number System
 const floatingNumberPool = [];
@@ -1913,4 +1923,14 @@ function createFloatingNumber(value, position, color = 0xff0000) {
     }
     
     updateNumber();
+}
+
+// NEW: Function to play sun impact sound
+function playSunImpactSound() {
+    if (sunImpactSound && sunImpactSound.buffer) {
+        if (sunImpactSound.isPlaying) {
+            sunImpactSound.stop();
+        }
+        sunImpactSound.play();
+    }
 }
