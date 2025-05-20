@@ -83,10 +83,10 @@ let sunImpactSound = null; // NEW: Sound for sun collision
 // --------------------------------
 
 // --- NEW: Music Volumes & Fade --- 
-const THEME_MUSIC_VOLUME = 0.14;
+const THEME_MUSIC_VOLUME = 0.3;
 const DANGER_THEME_VOLUME = 0.3; 
 // const MUSIC_CROSSFADE_DURATION = 1.5; // seconds // <<< OLD
-const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // seconds <<< Reverted from 8.0 test value
+const MUSIC_ANTICIPATION_FADE_DURATION = 8.0; // seconds <<< Reverted from 8.0 test value
 // --------------------------------
 
 // --- Cooldown Tracking ---
@@ -1379,13 +1379,13 @@ async function loadAudio(listener) { // <<< Mark as async
     
     // <<< NEW: Central configuration for all sounds >>>
     const soundsToLoadConfig = [
-        { name: 'pickupSound', path: 'sfx/treefall.mp3', volume: 0.5, loop: false, type: 'Audio', log: 'Seed (treefall) pickup sound loaded.' },
-        { name: 'fuelPickupSound', path: 'sfx/stone-break.mp3', volume: 0.5, loop: false, type: 'Audio', log: 'Fuel pickup sound loaded.' },
+        { name: 'pickupSound', path: 'sfx/treefall.mp3', volume: 0.3, loop: false, type: 'Audio', log: 'Seed (treefall) pickup sound loaded.' },
+        { name: 'fuelPickupSound', path: 'sfx/stone-break.mp3', volume: 0.2, loop: false, type: 'Audio', log: 'Fuel pickup sound loaded.' },
         { name: 'rocketLaunchSound', path: 'sfx/rocketsound.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Rocket launch sound loaded.' },
         { name: 'impactSound', path: 'sfx/impact-sound.mp3', volume: 0.7, loop: false, type: 'Audio', log: 'Impact sound loaded.' },
         { name: 'rollingSound', path: 'sfx/rolling-sound.mp3', volume: config.ROLLING_SOUND_BASE_VOLUME, loop: true, type: 'Audio', log: 'Rolling sound loaded.' },
         { name: 'ambientSound', path: 'sfx/wind-soft-crickets.wav', volume: 0.3, loop: true, type: 'Audio', log: 'Ambient sound loaded.' },
-        { name: 'boostBurstSound', path: 'sfx/boost_burst.mp3', volume: 0.6, loop: false, type: 'PositionalAudio', refDistance: 10, rolloffFactor: 1, log: 'Boost Burst sound loaded.' },
+        { name: 'boostBurstSound', path: 'sfx/boost_burst.mp3', volume: 0.5, loop: false, type: 'PositionalAudio', refDistance: 10, rolloffFactor: 1, log: 'Boost Burst sound loaded.' },
         { name: 'boostRiseSound', path: 'sfx/boost_rise.mp3', volume: 0.5, loop: false, type: 'PositionalAudio', refDistance: 15, rolloffFactor: 1, log: 'Boost Rise sound loaded.' },
         { name: 'palMovementSound', path: 'sfx/pal/palmovement-sound.wav', volume: config.PAL_MOVE_SOUND_BASE_VOLUME, loop: true, type: 'PositionalAudio', refDistance: config.PAL_SOUND_REF_DISTANCE, rolloffFactor: config.PAL_SOUND_ROLLOFF_FACTOR, log: 'Pal movement sound loaded (Positional).' },
         { name: 'palArrivalSound', path: 'sfx/pal/yes.wav', volume: 0.8, loop: false, type: 'PositionalAudio', refDistance: config.PAL_SOUND_REF_DISTANCE, rolloffFactor: config.PAL_SOUND_ROLLOFF_FACTOR, log: 'Pal arrival sound loaded.' },
@@ -1405,8 +1405,8 @@ async function loadAudio(listener) { // <<< Mark as async
         { name: 'nodeProximityLoopSound', path: 'sfx/enterNode.mp3', volume: 0.5, loop: true, type: 'PositionalAudio', refDistance: 40, rolloffFactor: 1.0, log: 'Node proximity loop sound loaded (Positional).' }, // Corrected path (assumed)
         { name: 'singleNodeActivationSound', path: 'sfx/deactivateNodeSingle.mp3', volume: 0.7, loop: false, type: 'PositionalAudio', refDistance: 50, rolloffFactor: 1, log: 'Single node activation sound loaded (Positional).' }, // Corrected path (assumed)
         { name: 'playerCollideSound', path: 'sfx/collidesound.mp3', volume: 0.8, loop: false, type: 'Audio', log: 'Player collide sound loaded.' },
-        { name: 'themeMusicSound', path: 'sfx/StarSeedTheme.mp3', volume: 0.6, loop: true, type: 'Audio', log: 'Theme music loaded.' },
-        { name: 'dangerMusicSound', path: 'sfx/DangerTheme.mp3', volume: 0.6, loop: true, type: 'Audio', log: 'Danger theme sound loaded.' },
+        { name: 'themeMusicSound', path: 'sfx/starseedambient.mp3', volume: 0.3, loop: true, type: 'Audio', log: 'Theme music loaded.' },
+        { name: 'dangerMusicSound', path: 'sfx/DangerTheme.mp3', volume: 0.3, loop: true, type: 'Audio', log: 'Danger theme sound loaded.' },
         // { name: 'inventoryFullSound', path: 'sfx/inventory-full.mp3', volume: 0.6, loop: false, type: 'Audio', log: 'Inventory full sound loaded.' }, // <<< UNCOMMENTED
         // { name: 'enemyScanningSound', path: 'sfx/enemy/enemy-scanning.mp3', volume: 0.7, loop: true, type: 'Audio', log: 'Enemy scanning sound loaded.' }, // File missing?
         { name: 'sunImpactSound', path: 'sfx/sunImpact.mp3', volume: 0.8, loop: false, type: 'Audio', log: 'Sun impact sound loaded.' },
@@ -1606,6 +1606,12 @@ function playThemeMusic() {
     if (sound && sound.buffer && !sound.isPlaying) {
         if (sound.context.state === 'running') {
             console.log("Playing theme music...");
+            // Reset gain node to 1.0 before setting volume
+            if (sound.gain?.gain) { 
+                sound.gain.gain.cancelScheduledValues(sound.context.currentTime); // Cancel any ramps
+                sound.gain.gain.setValueAtTime(1.0, sound.context.currentTime); // Reset gain
+            }
+            sound.setVolume(THEME_MUSIC_VOLUME); // <<< SET VOLUME EXPLICITLY
             sound.play();
         } else {
             console.warn("Cannot play theme music - audio context not running.");
@@ -1682,49 +1688,46 @@ function playAppropriateMusic(isEnemyAwake) {
 
 // Helper function to schedule the fade after ensuring context is running
 function scheduleFade(isEnemyAwake, themeSound, dangerSound, audioCtx) {
-    const fadeEndTime = audioCtx.currentTime + MUSIC_ANTICIPATION_FADE_DURATION;
+    // --- REMOVE Fade Duration and End Time ---
+    // const fadeEndTime = audioCtx.currentTime + MUSIC_ANTICIPATION_FADE_DURATION;
+    // --------------------------------------
+    
     // <<< FIX: Use the volume property directly from the sound object >>>
-    const themeTargetVolume = isEnemyAwake ? 0 : (themeSound.volume || 0.6); // Use loaded volume, fallback if needed
-    const dangerTargetVolume = isEnemyAwake ? (dangerSound.volume || 0.6) : 0; // Use loaded volume, fallback if needed
+    // Use the INITIAL volume set during load as the target when 'on'
+    const themeTargetVolume = isEnemyAwake ? 0 : (window.loadedSoundsConfig?.themeMusicSound?.volume || THEME_MUSIC_VOLUME); // Read initial config volume
+    const dangerTargetVolume = isEnemyAwake ? (window.loadedSoundsConfig?.dangerMusicSound?.volume || DANGER_THEME_VOLUME) : 0; // Read initial config volume
     // <<< END FIX >>>
     const now = audioCtx.currentTime; // Get current time once
 
-    console.log(`[FADE] Scheduling fade for isEnemyAwake = ${isEnemyAwake}. CurrentTime: ${now.toFixed(2)}`); // <<< LOG 4
-    
-    // <<< Log gain node value >>>
+    console.log(`[FADE] Scheduling IMMEDIATE volume set for isEnemyAwake = ${isEnemyAwake}. CurrentTime: ${now.toFixed(2)}`); // <<< LOG 4 (Updated)
+
+    // <<< Log gain node value (Still useful for debugging) >>>
     const currentThemeGain = themeSound.gain?.gain?.value ?? 'N/A';
     const currentDangerGain = dangerSound.gain?.gain?.value ?? 'N/A';
 
     console.log(`[FADE] Current Gains - Theme: ${currentThemeGain.toFixed ? currentThemeGain.toFixed(2) : currentThemeGain}, Danger: ${currentDangerGain.toFixed ? currentDangerGain.toFixed(2) : currentDangerGain}`); // <<< LOG 5
-    console.log(`[FADE] Target Volumes - Theme: ${themeTargetVolume}, Danger: ${dangerTargetVolume}`); // <<< LOG 6
+    console.log(`[FADE] Target Volumes (Immediate) - Theme: ${themeTargetVolume}, Danger: ${dangerTargetVolume}`); // <<< LOG 6 (Updated)
     console.log(`[FADE] IsPlaying Flags - Theme: ${themeSound.isPlaying}, Danger: ${dangerSound.isPlaying}`); // <<< LOG 7
 
-    // --- Start sounds only if they are NOT already playing AND need to fade IN --- 
+    // --- Start sounds only if they are NOT already playing AND need to be ON ---
     if (dangerTargetVolume > 0 && !dangerSound.isPlaying) {
-        console.log(`[FADE] Starting danger theme (for fade-in).`); // <<< LOG 8
-        // <<< Explicitly set gain node value low >>>
-        if (dangerSound.gain?.gain) {
-             dangerSound.gain.gain.setValueAtTime(0.001, now); // Set gain low NOW
-        } else {
-             dangerSound.setVolume(0.001); // Fallback
-        }
+        console.log(`[FADE] Starting danger theme.`); // <<< LOG 8 (Simplified)
+        // Set volume low before playing if starting
+        dangerSound.setVolume(0.001); 
         console.log(`[Debug scheduleFade] Calling dangerSound.play()`); // <<< ADD Log
-        dangerSound.play(); 
+        dangerSound.play();
     }
     if (themeTargetVolume > 0 && !themeSound.isPlaying) {
-        console.log(`[FADE] Starting normal theme (for fade-in).`); // <<< LOG 9
-        // <<< Explicitly set gain node value low >>>
-        if (themeSound.gain?.gain) {
-             themeSound.gain.gain.setValueAtTime(0.001, now); // Set gain low NOW
-        } else {
-             themeSound.setVolume(0.001); // Fallback
-        }
+        console.log(`[FADE] Starting normal theme.`); // <<< LOG 9 (Simplified)
+        // Set volume low before playing if starting
+        themeSound.setVolume(0.001);
         console.log(`[Debug scheduleFade] Calling themeSound.play()`); // <<< ADD Log
         themeSound.play();
     }
     // ---------------------------------------------------------------------------
 
-    // --- Schedule Gain Ramps --- 
+    // --- REMOVE Gain Ramp Scheduling ---
+    /*
     console.log(`[FADE] Scheduling gain ramps to Theme=${themeTargetVolume}, Danger=${dangerTargetVolume} ending at ${fadeEndTime.toFixed(2)}`); // <<< LOG 10
     if (themeSound.gain?.gain) {
         // <<< Explicitly cancel previous ramps and set start value >>>
@@ -1739,6 +1742,7 @@ function scheduleFade(isEnemyAwake, themeSound, dangerSound, audioCtx) {
             themeSound.gain.gain.linearRampToValueAtTime(themeTargetVolume, fadeEndTime);
         }
         */
+    /*
     } else {
         console.warn("[Music] Theme sound gain node not found!");
     }
@@ -1755,12 +1759,35 @@ function scheduleFade(isEnemyAwake, themeSound, dangerSound, audioCtx) {
             dangerSound.gain.gain.linearRampToValueAtTime(dangerTargetVolume, fadeEndTime);
         }
         */
+    /*
     } else {
         console.warn("[Music] Danger sound gain node not found!");
     }
+    */
     // ---------------------------
 
-    // --- Stop sounds after fade-out --- 
+    // --- SET VOLUME IMMEDIATELY using setVolume() ---
+    console.log(`[FADE] Setting volumes IMMEDIATELY - Theme: ${themeTargetVolume}, Danger: ${dangerTargetVolume}`);
+    if (themeSound) {
+        themeSound.setVolume(themeTargetVolume);
+    }
+    if (dangerSound) {
+        dangerSound.setVolume(dangerTargetVolume);
+    }
+    // ---------------------------------------------
+
+    // --- Stop sounds IMMEDIATELY if target volume is 0 --- 
+    console.log(`[FADE] Checking if sounds should stop immediately.`);
+    if (themeTargetVolume < 0.01 && themeSound.isPlaying) { 
+        themeSound.stop(); 
+        console.log("[Music] Stopped theme sound immediately.");
+    }
+    if (dangerTargetVolume < 0.01 && dangerSound.isPlaying) { 
+        dangerSound.stop(); 
+        console.log("[Music] Stopped danger sound immediately.");
+    }
+    // --- REMOVE setTimeout check ---
+    /*
     setTimeout(() => {
         // <<< Use gain node value for check >>>
         const postFadeThemeGain = themeSound.gain?.gain?.value ?? -1; // Use -1 if unavailable
@@ -1776,6 +1803,7 @@ function scheduleFade(isEnemyAwake, themeSound, dangerSound, audioCtx) {
             console.log("[Music] Stopped danger sound post-fade.");
         }
     }, (MUSIC_ANTICIPATION_FADE_DURATION + 0.2) * 1000); // Check 0.2s after fade ends
+    */
     // -----------------------------------------
 }
 // -------------------------------

@@ -574,12 +574,12 @@ async function init() {
         composer.addPass(renderPass);
 
         const bloomPass = new UnrealBloomPass(
-            new THREE.Vector2(window.innerWidth, window.innerHeight),
-            0.3,    // strength
-            0.4,    // radius
-            0.85    // threshold
+            new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2), // <<< REDUCED RESOLUTION
+            0.25,    // strength (was 0.3)
+            0.4,    // radius (unchanged)
+            0.9    // threshold (was 0.85)
         );
-        composer.addPass(bloomPass);
+        composer.addPass(bloomPass); // <<< RE-ENABLING BLOOM
 
         // --- NEW: Add Bokeh (Depth of Field) Pass ---
         bokehPass = new BokehPass( scene, camera, {
@@ -684,13 +684,15 @@ async function init() {
                     loadedModel.scale.set(scale, scale, scale);
                     loadedModel.position.set(0, 0, 0); // Position at the center of the group
 
-                    // Shadows
+                    // Shadows for Verdant Minor (which is not home)
                     loadedModel.traverse((child) => {
                         if (child.isMesh) {
-                            child.castShadow = true; // Re-enable cast shadow
-                            child.receiveShadow = true;
+                            child.castShadow = false; 
+                            child.receiveShadow = false;
                         }
                     });
+                    console.log("Verdant Minor GLTF: Shadows DISABLED for all children.");
+                    // ----------------------
 
                     // --- Animation Setup --- 
                     if (gltf.animations && gltf.animations.length > 0) {

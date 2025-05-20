@@ -111,6 +111,13 @@ export function initScene() {
         // Enable shadow mapping
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap; // <<< REVERT back to PCFSoft
+
+        // --- NEW: Tone Mapping and Output Encoding ---
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        // -------------------------------------------
+
     } catch (e) {
         console.error("Scene INIT: Error creating WebGLRenderer:", e);
         throw e; // Re-throw error to stop initialization
@@ -124,8 +131,8 @@ export function initScene() {
     sunLight.position.set(0, 0, 0);
     sunLight.castShadow = true;
     // Increase shadow map resolution
-    sunLight.shadow.mapSize.width = 4096;
-    sunLight.shadow.mapSize.height = 4096;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
     sunLight.shadow.camera.near = 50;
     sunLight.shadow.camera.far = 1500;
     sunLight.shadow.bias = -0.0001;
@@ -152,7 +159,7 @@ export function initScene() {
             const sunScale = 0.1;
             sunModel.scale.set(sunScale, sunScale, sunScale);
             sunContainer.add(sunModel);
-            
+
             // Add the container to the scene
             scene.add(sunContainer);
             star = sunContainer;

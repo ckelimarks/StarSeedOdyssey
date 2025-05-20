@@ -4,6 +4,7 @@ import * as config from './config.js'; // Import config for potential future use
 import {
     PLAYER_MODEL_SCALE, PLAYER_RADIUS, // Existing potentially used
     ENEMY_ACCELERATION, ENEMY_FRICTION, ENEMY_MAX_VELOCITY, // Existing potentially used
+    ENEMY_PROXIMITY_ALERT_RADIUS, // <<< NEW: Import proximity radius
     NODES_REQUIRED, NODE_ACTIVATION_DURATION, NODE_INTERACTION_DISTANCE, MIN_NODE_DISTANCE // Node constants
 } from './config.js';
 import { getRandomPositionOnPlanet } from './utils.js'; // <<< NEW: Import utility
@@ -15,6 +16,8 @@ const EnemyAIState = {
     PATROLLING: 'PATROLLING',
     HUNTING: 'HUNTING',
     SCANNING: 'SCANNING', // <<< NEW STATE
+    SEARCHING_AREA: 'SEARCHING_AREA', // NEW: Searching a specific zone
+    TARGETING_NODE: 'TARGETING_NODE', // NEW: For reacting to node activation
     SLEEPING: 'SLEEPING' // <<< NEW STATE
 };
 // -----------------------
@@ -29,10 +32,12 @@ const HUNT_DETECTION_DURATION = 1.0; // <<< NEW: Seconds player must be seen to 
 const NUM_PATROL_POINTS = 50; // <<< NEW: Number of points for systematic patrol
 const SPOTLIGHT_SENSITIVITY_FACTOR = 0.75; // <<< RE-ENABLED sensitivity adjustment // Sensitivity at MAX distance
 const SPOTLIGHT_SENSITIVITY_AT_MIN_DIST = 1.0; // <<< NEW: Sensitivity multiplier when player is very close
-const HUNT_PREDICTION_ERROR_DISTANCE = 2.0; // <<< NEW: How much inaccuracy when hunting
 const SPOTLIGHT_TRACKING_SPEED = 6.0; // <<< INCREASED AGAIN
 const DETECTION_SOUND_COOLDOWN = 3.0; // <<< NEW: Cooldown for roar/siren sounds
-const PATROL_DURATION = 45.0; // <<< ADJUSTED for testing
+const SEARCH_AREA_RADIUS = 25.0; // NEW: Radius for local searching
+const SEARCH_AREA_DURATION = 15.0; // NEW: How long to search an area before giving up
+const SEARCH_POINT_REACH_DISTANCE_SQ = 2.0 * 2.0; // NEW: Squared distance for reaching search points
+const PATROL_DURATION = 60.0; // <<< ADJUSTED for testing
 const SLEEP_DURATION = 120.0;  // <<< CORRECTED VALUE & ADDED SEMICOLON
 const MUSIC_ANTICIPATION_FADE_DURATION = 4.0; // <<< NEW: Added for music fade logic
 // ------------------------
@@ -76,6 +81,14 @@ let enemyState = {
     // ---------------
     statusText: "Initializing", // Current action description
     lastDetectionSoundTime: 0, // <<< NEW: Timestamp for cooldown
+    priorityTargetNodePosition: null, // NEW: Stores the world position of a node the enemy is prioritizing
+    priorityTargetNodeId: null, // NEW: Stores the ID of the node the enemy is prioritizing
+    speedMultiplier: 1.0, // NEW: Multiplier for speed (e.g., when targeting a node)
+    // --- Area Searching State ---
+    searchAreaCenter: null, // NEW: Center position for area search
+    searchTimer: 0,         // NEW: Timer for search duration
+    currentSearchTargetPos: null, // NEW: Current random point being targeted in the search area
+    isAreaScan: false,      // NEW: Flag to indicate if a scan is part of area searching
     // --------------------
     patrolTimer: 0, // <<< NEW
     sleepTimer: 0, // <<< NEW: Timer for sleep duration
@@ -476,39 +489,41 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
     }
 
     const enemyMesh = enemyState.mesh;
-    const planetRadius = homePlanetRef.geometry.parameters.radius;
     const enemyVelocity = enemyState.velocity;
-    const PATROL_TARGET_REACH_DISTANCE_SQ = 5.0 * 5.0; // <<< INCREASED from 1.0*1.0
-    const PATROL_NEW_TARGET_TIME = 5.0; // Seconds before picking new target even if not reached
-    const PATROL_MAX_DISTANCE = 20.0; // How far away to pick patrol points
+    const homePlanet = homePlanetRef; // Assuming homePlanetRef is correctly set from initEnemy
+    const planetRadius = homePlanet.geometry.parameters.radius;
+    const FADE_DURATION = 0.3; // General fade duration for animations
+    const PATROL_TARGET_REACH_DISTANCE_SQ = 2.0 * 2.0; // Squared distance to consider patrol point reached
+    const NODE_TARGET_REACH_DISTANCE_SQ = 3.0 * 3.0; // Squared distance for reaching a targeted node
 
-    // --- Get Sound References (Declare once) --- <<< NEW
+    // Update enemy's world position for calculations
+    enemyMesh.getWorldPosition(_enemyWorldPos);
+    homePlanet.getWorldPosition(_planetWorldPos); // Assuming planet center is its world position
+
+    // Default target for movement (can be overridden by states)
+    let targetWorldPos = null;
+
+    // Update current up vector based on planet surface normal
+    _enemyUp.copy(_enemyWorldPos).sub(_planetWorldPos).normalize();
+
+    // Animation mixer update (moved earlier, common to all states)
+    if (enemyState.mixer) {
+        enemyState.mixer.update(deltaTime);
+    }
+    
+    // Audio context check for sounds
     const movementSound = window.loadedSounds?.enemyMovementSound;
     const scanningSound = window.loadedSounds?.enemyScanningSound;
-    // ------------------------------------------
-
-    // --- Get World Positions --- (Needed regardless of state for orientation/clamping)
-    enemyMesh.getWorldPosition(_enemyWorldPos);
-    homePlanetRef.getWorldPosition(_planetWorldPos); // Usually 0,0,0 but good practice
-    // --- Force Matrix Update --- 
-    enemyMesh.updateMatrixWorld(true); // Ensure enemy and children (spotlight, target) matrices are current
-    // --- Update Spotlight Target Matrix (if needed) ---
-    if (enemyState.spotLight && enemyState.spotLightTargetHelper) {
-        if (enemyState.spotLight.target === enemyState.spotLightTargetHelper) {
-            // Update the helper's matrix *before* getting spotlight direction
-            enemyState.spotLightTargetHelper.updateMatrixWorld(); 
-        }
-        // No need to explicitly update player mesh matrix here, assume it's handled elsewhere
-    }
-    // --------------------------------------------------
+    const audioCtx = movementSound?.context || scanningSound?.context;
 
     // --- STATE MACHINE LOGIC ---
-    let targetWorldPos = null; // Where the enemy should move towards in world space
-    const FADE_DURATION = 0.5; // Animation fade duration
+    // Where the enemy should move towards in world space (set by states below)
+    // let targetWorldPos = null; // REMOVED redundant declaration
 
     // --- Handle State Transitions and Actions ---
     switch (enemyState.currentState) {
         case EnemyAIState.PATROLLING:
+            // --- Ensure Patrol Sound is Playing (Not Implemented Yet) ---
             // --- Stop Scanning Sound (if playing) ---
             if (scanningSound && enemyState.isScanningSoundPlaying) {
                 scanningSound.stop();
@@ -538,6 +553,7 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
                 enemyState.patrolTimer = 0;
                 enemyState.sleepTimer = 0;
                 enemyState.statusText = "Sleeping"; // Initial status, timer updates below
+                enemyState.speedMultiplier = 1.0; // Reset speed multiplier
                 
                 // Stop sounds, dim light, idle anim
                 if (movementSound && enemyState.isMovingSoundPlaying) movementSound.stop();
@@ -692,26 +708,199 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
 
             // Check if scan finished
             if (enemyState.scanTimer >= enemyState.scanDuration) {
-                console.log("ENEMY STATE: Scan complete. Returning to PATROLLING.");
-                enemyState.currentState = EnemyAIState.PATROLLING;
-                // targetWorldPos = null; // No need to set this, PATROLLING will calculate next point
-                enemyState.timeInSpotlight = 0; // Reset hunt timer when returning to patrol
-                enemyState.statusText = `Patrolling (${Math.max(0, PATROL_DURATION - enemyState.patrolTimer).toFixed(1)}s left)`;
-                // Resume walk animation
+                if (enemyState.isAreaScan) {
+                    console.log("ENEMY STATE: Area scan complete. Switching to SEARCHING_AREA.");
+                    enemyState.currentState = EnemyAIState.SEARCHING_AREA;
+                    enemyState.searchTimer = 0; // Reset search timer
+                    enemyState.currentSearchTargetPos = null; // Clear search target
+                    enemyState.isAreaScan = false; // Clear the flag
+                } else {
+                    console.log("ENEMY STATE: Patrol scan complete. Returning to PATROLLING.");
+                    enemyState.currentState = EnemyAIState.PATROLLING;
+                    // targetWorldPos = null; // PATROLLING calculates next point
+                    enemyState.timeInSpotlight = 0; // Reset hunt timer
+                    enemyState.statusText = `Patrolling (${Math.max(0, PATROL_DURATION - enemyState.patrolTimer).toFixed(1)}s left)`;
+                }
+                 // Resume walk animation (common for both transitions out of scan)
                 if (enemyState.actions.walk) {
                     enemyState.actions.walk.timeScale = 1;
                     enemyState.actions.walk.fadeIn(FADE_DURATION);
                 }
-                // --- Reset Spotlight Target Helper Position ---
+                // --- Reset Spotlight Target Helper Position (common) ---
                 if (enemyState.spotLightTargetHelper) {
                     enemyState.spotLightTargetHelper.position.set(-15, 0, 0); // Default forward
                 }
-                // --------------------------------------------
             } else {
                 // Ensure walk animation is paused during scan
                  if (enemyState.actions.walk) {
                     enemyState.actions.walk.timeScale = 0; // Ensure paused
                  }
+            }
+            break;
+
+        case EnemyAIState.SEARCHING_AREA:
+            enemyState.statusText = `Searching Area (${(SEARCH_AREA_DURATION - enemyState.searchTimer).toFixed(1)}s left)`;
+            enemyState.searchTimer += deltaTime;
+            enemyState.speedMultiplier = 1.0; // Use normal speed for searching
+
+            // Check timer expiry
+            if (enemyState.searchTimer >= SEARCH_AREA_DURATION) {
+                console.log("ENEMY STATE: Search area duration expired. Reverting to global PATROLLING.");
+                enemyState.currentState = EnemyAIState.PATROLLING;
+                enemyState.searchAreaCenter = null; // Clear search center
+                enemyState.currentSearchTargetPos = null;
+                break;
+            }
+
+            // Vision Check (interrupt search if player found)
+            if (!window.debugDisableHuntMode && playerMesh && isPlayerInSpotlight(playerMesh)) {
+                console.log("ENEMY STATE: Player detected during area search! Switching to HUNTING.");
+                enemyState.currentState = EnemyAIState.HUNTING;
+                enemyState.searchAreaCenter = null; // Clear search params
+                enemyState.currentSearchTargetPos = null;
+                enemyState.timeInSpotlight = 0;
+                enemyState.timeSincePlayerSeen = 0;
+                triggerScreenShake(0.6, 1.0);
+                if (enemyState.actions.walk) enemyState.actions.walk.timeScale = 1; // Ensure walking
+                break;
+            }
+
+            // Pick a new random search target if needed (or reached current one)
+            if (!enemyState.currentSearchTargetPos || _enemyWorldPos.distanceToSquared(enemyState.currentSearchTargetPos) < SEARCH_POINT_REACH_DISTANCE_SQ) {
+                console.log("ENEMY SEARCH: Picking new random point within area.");
+                const randomDirection = new THREE.Vector3(
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2
+                ).normalize();
+                const randomDistOffset = Math.random() * SEARCH_AREA_RADIUS;
+                // Project the random offset onto the tangent plane at the search center
+                const centerNormal = enemyState.searchAreaCenter.clone().sub(_planetWorldPos).normalize();
+                const tangentOffset = randomDirection.clone().projectOnPlane(centerNormal).normalize().multiplyScalar(randomDistOffset);
+                
+                // Add tangent offset to the center point (in world space)
+                const potentialTarget = enemyState.searchAreaCenter.clone().add(tangentOffset);
+                
+                // Project the potential target back onto the sphere surface
+                const dirFromPlanetCenter = potentialTarget.clone().sub(_planetWorldPos);
+                const enemyHeight = config.PLAYER_RADIUS * 0.25 * 0.8; // Reuse approximate height
+                dirFromPlanetCenter.normalize().multiplyScalar(planetRadius + enemyHeight);
+                enemyState.currentSearchTargetPos = _planetWorldPos.clone().add(dirFromPlanetCenter);
+                console.log("ENEMY SEARCH: New target set.");
+            }
+
+            targetWorldPos = enemyState.currentSearchTargetPos; // Set the movement target
+
+            // Ensure walk animation is playing
+            if (enemyState.actions.walk) {
+                enemyState.actions.walk.timeScale = 1;
+                if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) {
+                    enemyState.actions.walk.fadeIn(FADE_DURATION);
+                } else {
+                    enemyState.actions.walk.weight = 1.0;
+                }
+            }
+            // Stop scanning sound if it was playing (shouldn't be, but safety)
+            if (scanningSound && enemyState.isScanningSoundPlaying) {
+                scanningSound.stop();
+                enemyState.isScanningSoundPlaying = false;
+            }
+            break;
+
+        case EnemyAIState.TARGETING_NODE:
+            enemyState.statusText = "Investigating Node";
+            if (enemyState.priorityTargetNodePosition && enemyState.priorityTargetNodeId) { // Check ID exists too
+                targetWorldPos = enemyState.priorityTargetNodePosition.clone();
+                // REMOVED Node Validity Check Block - Enemy will always travel to the location first.
+                /*
+                let targetedNodeStillValid = false;
+                
+                // Find the node by ID first
+                const targetedNode = enemyState.deactivationNodes.find(node => node.id === enemyState.priorityTargetNodeId);
+
+                // If found, check if it's still activated
+                if (targetedNode && !targetedNode.isActivated) {
+                    targetedNodeStillValid = true;
+                }
+
+                if (!targetedNodeStillValid) {
+                    console.log("ENEMY STATE: Targeted node is no longer valid (activated, despawned, or ID mismatch). Reverting to PATROLLING.");
+                    console.log("ENEMY STATE: Exiting TARGETING_NODE (-> PATROLLING due to invalid node)");
+                    enemyState.currentState = EnemyAIState.PATROLLING;
+                    enemyState.priorityTargetNodePosition = null;
+                    enemyState.priorityTargetNodeId = null; // Clear ID
+                    enemyState.speedMultiplier = 1.0;
+                    break;
+                }
+                */
+
+                // Check if player is in spotlight (This check remains)
+                if (!window.debugDisableHuntMode && playerMesh && isPlayerInSpotlight(playerMesh)) {
+                    console.log("ENEMY STATE: Player detected while investigating node! Switching to HUNTING.");
+                    console.log("ENEMY STATE: Exiting TARGETING_NODE (-> HUNTING)"); // Log exit
+                    enemyState.currentState = EnemyAIState.HUNTING;
+                    enemyState.timeInSpotlight = 0;
+                    enemyState.timeSincePlayerSeen = 0;
+                    enemyState.priorityTargetNodePosition = null; // Clear node target
+                    enemyState.priorityTargetNodeId = null; // Clear ID
+                    enemyState.speedMultiplier = 1.0; // Reset speed multiplier
+                    triggerScreenShake(0.6, 1.0);
+                    playAppropriateMusic(true); // Ensure danger music
+                    if (enemyState.actions.walk) enemyState.actions.walk.timeScale = 1;
+                    break;
+                }
+
+                // Check if reached the node
+                if (_enemyWorldPos.distanceToSquared(targetWorldPos) < NODE_TARGET_REACH_DISTANCE_SQ) {
+                    console.log("ENEMY STATE: Reached targeted node. Node still valid. Continuing investigation or switching to SCANNING/PATROLLING.");
+                    // Instead of immediately patrolling, consider a short scan or re-evaluating player position.
+                    // For now, let's switch to SCANNING briefly if player not in sight.
+                    if (!playerMesh || !isPlayerInSpotlight(playerMesh)) {
+                        console.log("ENEMY STATE: Exiting TARGETING_NODE (-> SCANNING after reaching node)");
+                        enemyState.currentState = EnemyAIState.SCANNING;
+                        enemyState.scanTimer = 0;
+                        enemyState.scanDuration = MIN_SCAN_DURATION; // Short scan
+                        enemyState.isAreaScan = true; // Flag this scan as part of node investigation
+                        // Store the node position as the center for the subsequent area search
+                        enemyState.searchAreaCenter = enemyState.priorityTargetNodePosition.clone(); 
+                        enemyState.priorityTargetNodePosition = null; // Clear node target
+                        enemyState.priorityTargetNodeId = null; // Clear ID
+                        enemyState.speedMultiplier = 1.0; // Reset speed multiplier
+                    } else {
+                        // Player is in spotlight at the node, switch to HUNTING
+                        console.log("ENEMY STATE: Player detected at the targeted node! Switching to HUNTING.");
+                        console.log("ENEMY STATE: Exiting TARGETING_NODE (-> HUNTING at node)"); // Log exit
+                        enemyState.currentState = EnemyAIState.HUNTING;
+                        enemyState.timeInSpotlight = 0;
+                        enemyState.timeSincePlayerSeen = 0;
+                        enemyState.priorityTargetNodePosition = null; // Clear node target
+                        enemyState.priorityTargetNodeId = null; // Clear ID
+                        enemyState.speedMultiplier = 1.0; // Reset speed multiplier
+                        triggerScreenShake(0.6, 1.0);
+                        playAppropriateMusic(true); 
+                    }
+                    break; // Break from TARGETING_NODE
+                }
+            } else {
+                // Should not happen, but if no priority target, go to patrol
+                console.warn("ENEMY STATE: In TARGETING_NODE but no priorityTargetNodePosition/ID. Reverting to PATROLLING.");
+                enemyState.currentState = EnemyAIState.PATROLLING;
+                enemyState.priorityTargetNodeId = null; // Clear ID just in case
+                enemyState.speedMultiplier = 1.0; // Reset speed multiplier
+            }
+             // Ensure walk animation is playing
+            if (enemyState.actions.walk) {
+                enemyState.actions.walk.timeScale = 1;
+                if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) {
+                    enemyState.actions.walk.fadeIn(FADE_DURATION);
+                } else {
+                    enemyState.actions.walk.weight = 1.0;
+                }
+            }
+            // Stop scanning sound if it was playing
+            if (scanningSound && enemyState.isScanningSoundPlaying) {
+                scanningSound.stop();
+                enemyState.isScanningSoundPlaying = false;
             }
             break;
 
@@ -724,144 +913,114 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
             }
             // -----------------------------------------
 
-            // Set default status for hunting
-            enemyState.statusText = "Hunting"; 
-
-            // This state assumes playerMesh is valid (checked at the start of updateEnemy)
             playerMesh.getWorldPosition(_playerWorldPos); // Get current player position
 
-            if (!window.debugDisableHuntMode && isPlayerInSpotlight(playerMesh)) { // Added debug check here too
-                // Player is SEEN
+            let playerDetectedThisFrame = false;
+            const distanceToPlayerSq = _enemyWorldPos.distanceToSquared(_playerWorldPos);
+
+            // 1. Check Proximity First
+            if (distanceToPlayerSq < ENEMY_PROXIMITY_ALERT_RADIUS * ENEMY_PROXIMITY_ALERT_RADIUS) {
+                playerDetectedThisFrame = true;
+                enemyState.statusText = "Hunting (Player Close)";
+                enemyState.speedMultiplier = 1.5; // Maintain/set aggressive speed
+            } 
+            // 2. If not by proximity, check spotlight
+            else if (!window.debugDisableHuntMode && isPlayerInSpotlight(playerMesh)) {
+                playerDetectedThisFrame = true;
+                enemyState.statusText = "Hunting (Player in Spotlight)";
+                enemyState.speedMultiplier = 1.5; // Maintain/set aggressive speed
+            }
+
+            if (playerDetectedThisFrame) {
                 enemyState.timeSincePlayerSeen = 0; // Reset timer
                 enemyState.lastKnownPlayerWorldPos.copy(_playerWorldPos); // Update last known position
-                // targetWorldPos = enemyState.lastKnownPlayerWorldPos; // <<< OLD: Target current position directly
 
-                // --- NEW: Add Inaccuracy to Target --- 
-                const offset = _vector3.set(
-                    (Math.random() - 0.5),
-                    (Math.random() - 0.5),
-                    (Math.random() - 0.5)
-                ).normalize().multiplyScalar(HUNT_PREDICTION_ERROR_DISTANCE);
-                const inaccurateTarget = _playerWorldPos.clone().add(offset);
-                
-                // Project inaccurate target onto planet surface
-                const dirFromCenter = inaccurateTarget.clone().sub(_planetWorldPos);
-                const enemyHeight = config.PLAYER_RADIUS * 0.25 * 0.8; // Reuse approximate height
+                // --- Target player's current position directly ---
+                const dirFromCenter = _playerWorldPos.clone().sub(_planetWorldPos); 
+                const enemyHeight = config.PLAYER_RADIUS * 0.25 * 0.8; 
                 dirFromCenter.normalize().multiplyScalar(planetRadius + enemyHeight);
                 targetWorldPos = _planetWorldPos.clone().add(dirFromCenter);
                 // -------------------------------------
 
-                // --- Play Detection Sounds (with Cooldown) --- <<< MOVED & ADDED COOLDOWN
+                // --- Play Detection Sounds (with Cooldown) ---
                 const nowSeconds = performance.now() / 1000;
                 if (nowSeconds - enemyState.lastDetectionSoundTime > DETECTION_SOUND_COOLDOWN) {
-                     // <<< ADD Log >>>
-                     console.log(`[Enemy Sound Check] Cooldown passed. Roar exists: ${!!window.loadedSounds?.enemyRoarSound}, Roar playing: ${window.loadedSounds?.enemyRoarSound?.isPlaying}, Context: ${window.loadedSounds?.enemyRoarSound?.context?.state}`);
-                     // <<< END Log >>>
-                     
-                     // <<< REVERT: Play directly from window.loadedSounds >>>
-                     // if (enemyState.roarSound && !enemyState.roarSound.isPlaying && enemyState.roarSound.context.state === 'running') {
-                     const roarSound = window.loadedSounds?.enemyRoarSound; // Get sound reference
+                     const roarSound = window.loadedSounds?.enemyRoarSound;
                      if (roarSound && !roarSound.isPlaying && roarSound.context.state === 'running') {
-                         
-                         // <<< NEW: Attach sound to enemy mesh if not already attached >>>
-                         if (roarSound.parent !== enemyState.mesh) {
-                            console.log("[Enemy Sound Debug] Attaching roar sound to enemy mesh.");
-                            enemyState.mesh.add(roarSound); // Add sound as child of enemy
-                         }
-                         // <<< END Attach Logic >>>
-                         
-                         // enemyState.roarSound.play(); // Play attached sound
-                         // window.loadedSounds.enemyRoarSound.play(); // <<< Play global sound
-                         roarSound.play(); // <<< Play the sound (now potentially attached)
-                         enemyState.lastDetectionSoundTime = nowSeconds; // Update time only when sounds actually play
-                         console.log(`[Enemy Sound] Played Roar (Cooldown Active). Time: ${nowSeconds.toFixed(1)}`);
-                         
-                         // <<< ADD DISTANCE LOG >>>
+                         if (roarSound.parent !== enemyState.mesh) enemyState.mesh.add(roarSound);
+                         roarSound.play();
+                         enemyState.lastDetectionSoundTime = nowSeconds; 
+                         console.log(`[Enemy Sound] Hunt: Played Roar. Time: ${nowSeconds.toFixed(1)}`);
                          if(playerMesh) { 
-                            const enemyPos = _enemyWorldPos; // Use already calculated world pos
-                            const playerPos = _playerWorldPos; // Use already calculated world pos
-                            const distance = enemyPos.distanceTo(playerPos);
+                            const distance = _enemyWorldPos.distanceTo(_playerWorldPos);
                             console.log(`[Enemy Sound Debug] Distance player-enemy on roar: ${distance.toFixed(2)}`);
                          }
-                         // <<< END DISTANCE LOG >>>
-
                      }
-                     // Play siren slightly after roar or concurrently? Let's do concurrently for now.
                      if (window.loadedSounds?.alarmSirenSound && !window.loadedSounds.alarmSirenSound.isPlaying && window.loadedSounds.alarmSirenSound.context.state === 'running') {
                          window.loadedSounds.alarmSirenSound.play(); 
-                         // No need to update timestamp again if roar already did
-                         console.log(`[Enemy Sound] Played Siren (Cooldown Active). Time: ${nowSeconds.toFixed(1)}`);
-                         // <<< ADD Log: Check isPlaying state immediately after play() >>>
+                         console.log(`[Enemy Sound] Hunt: Played Siren. Time: ${nowSeconds.toFixed(1)}`);
                          console.log(`[Enemy Sound Debug] Siren isPlaying state immediately after play(): ${window.loadedSounds?.alarmSirenSound?.isPlaying}`);
-                         // <<< END Log >>>
                      }
-                } else {
-                    // Optional log: console.log(`[Enemy Sound] Detection sound cooldown active. Remaining: ${(DETECTION_SOUND_COOLDOWN - (nowSeconds - enemyState.lastDetectionSoundTime)).toFixed(1)}s`);
                 }
                 // -------------------------------------------
 
-                enemyState.timeInSpotlight = 0; // Reset hunt delay timer if seen while hunting
-                enemyState.statusText = "Hunting (Target Visible)";
+                enemyState.timeInSpotlight = 0; // Reset any spotlight-specific timers if re-detected
                 // Ensure walk animation is playing
                 if (enemyState.actions.walk) {
-                     enemyState.actions.walk.timeScale = 1; // Ensure resumed
-                    // Fade handled below?
-                     if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) { // Only fade if needed?
+                     enemyState.actions.walk.timeScale = 1; 
+                     if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) { 
                          enemyState.actions.walk.fadeIn(FADE_DURATION);
                      } else {
-                          enemyState.actions.walk.weight = 1.0; // Ensure full weight if not fading
+                          enemyState.actions.walk.weight = 1.0; 
                      }
                  }
 
                 // --- Smoothly Update Spotlight Target Helper Position ---
                 if (enemyState.spotLightTargetHelper) {
                     const targetHelper = enemyState.spotLightTargetHelper;
-                    
-                    // Get helper's current world position
                     targetHelper.getWorldPosition(_vector3); 
-                    
-                    // Interpolate world position towards player's world position
                     _vector3.lerp(_playerWorldPos, SPOTLIGHT_TRACKING_SPEED * deltaTime); 
-
-                    // Convert interpolated world position back to local position relative to enemy
                     enemyMesh.worldToLocal(_vector3); 
-                    targetHelper.position.copy(_vector3); // Set local position
+                    targetHelper.position.copy(_vector3); 
                 }
                 // ---------------------------------------------------
 
             } else {
-                // Player is NOT SEEN
+                // Player is NOT SEEN (neither by proximity nor spotlight)
                 enemyState.timeSincePlayerSeen += deltaTime;
+                enemyState.statusText = `Hunting (Searching - ${enemyState.timeSincePlayerSeen.toFixed(1)}s)`;
+                // Keep speedMultiplier as is (e.g. 1.5) while searching for a short period.
+                // It will be reset to 1.0 if it transitions to SEARCHING_AREA or PATROLLING.
+
                 if (enemyState.timeSincePlayerSeen < HUNT_GIVE_UP_TIME) {
                     // Continue hunting towards last known position
-                    targetWorldPos = enemyState.lastKnownPlayerWorldPos; // Target LAST known position
-                    enemyState.statusText = `Hunting (Searching)`;
-                    // Keep walking animation
+                    targetWorldPos = enemyState.lastKnownPlayerWorldPos.clone(); 
                     if (enemyState.actions.walk) {
-                        enemyState.actions.walk.timeScale = 1; // Ensure resumed
-                        if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) { // Only fade if needed?
+                        enemyState.actions.walk.timeScale = 1; 
+                        if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) { 
                             enemyState.actions.walk.fadeIn(FADE_DURATION);
                          } else {
-                              enemyState.actions.walk.weight = 1.0; // Ensure full weight if not fading
+                              enemyState.actions.walk.weight = 1.0; 
                          }
                     }
                 } else {
                     // Give up hunting!
-                    console.log(`ENEMY STATE: Lost player for ${HUNT_GIVE_UP_TIME}s. Giving up hunt, returning to PATROLLING.`);
-                    enemyState.currentState = EnemyAIState.PATROLLING;
-                    enemyState.patrolTimer = 0; // <<< Reset patrol timer when returning to patrol
-                    // targetWorldPos = null; // No need to set, PATROLLING handles it
+                    console.log(`ENEMY STATE: Lost player for ${HUNT_GIVE_UP_TIME}s. Giving up hunt, switching to SEARCHING_AREA.`);
+                    enemyState.currentState = EnemyAIState.SEARCHING_AREA;
+                    enemyState.searchAreaCenter = enemyState.lastKnownPlayerWorldPos.clone(); 
+                    enemyState.searchTimer = 0; 
+                    enemyState.currentSearchTargetPos = null; 
+                    enemyState.speedMultiplier = 1.0; // Reset speed multiplier when giving up hunt
                     enemyState.lastKnownPlayerWorldPos.set(0, 0, 0); 
                     enemyState.timeSincePlayerSeen = 0; 
-                    enemyState.timeInSpotlight = 0; // Reset hunt delay timer
-                    enemyState.statusText = `Patrolling (${Math.max(0, PATROL_DURATION - enemyState.patrolTimer).toFixed(1)}s left)`;
-                    // Ensure walk animation is playing for patrol start
+                    enemyState.timeInSpotlight = 0; 
+                    // Status text will be set by SEARCHING_AREA state
                     if (enemyState.actions.walk) {
-                        enemyState.actions.walk.timeScale = 1; // Ensure resumed
-                        if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) { // Only fade if needed?
+                        enemyState.actions.walk.timeScale = 1; 
+                        if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) { 
                             enemyState.actions.walk.fadeIn(FADE_DURATION);
                          } else {
-                              enemyState.actions.walk.weight = 1.0; // Ensure full weight if not fading
+                              enemyState.actions.walk.weight = 1.0; 
                          }
                     }
                 }
@@ -925,6 +1084,7 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
                 enemyState.sleepTimer = 0; 
                 enemyState.patrolTimer = 0; 
                 enemyState.statusText = `Patrolling (${Math.max(0, PATROL_DURATION - enemyState.patrolTimer).toFixed(1)}s left)`;
+                enemyState.speedMultiplier = 1.0; // Reset speed multiplier
                 playAppropriateMusic(true); // Play danger theme for awake
                 // Restore light intensity
                 if (enemyState.spotLight) enemyState.spotLight.intensity = enemyState.originalSpotlightIntensity;
@@ -971,7 +1131,8 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
 
         // Apply acceleration towards target
         if (_tangentAccelDir.lengthSq() > 1e-6) { // Check if direction is valid
-            enemyVelocity.addScaledVector(_tangentAccelDir, config.ENEMY_ACCELERATION * deltaTime);
+            // Apply speed multiplier here
+            enemyVelocity.addScaledVector(_tangentAccelDir, config.ENEMY_ACCELERATION * enemyState.speedMultiplier * deltaTime);
         }
     } else {
         // No target (e.g., scanning or reached patrol point), so just apply friction
@@ -988,8 +1149,11 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
     } 
 
     // Clamp velocity
-    if (enemyVelocity.lengthSq() > config.ENEMY_MAX_VELOCITY * config.ENEMY_MAX_VELOCITY) {
-        enemyVelocity.normalize().multiplyScalar(config.ENEMY_MAX_VELOCITY);
+    // Apply speed multiplier here too
+    const maxVelocity = config.ENEMY_MAX_VELOCITY * enemyState.speedMultiplier;
+    const maxVelocitySq = maxVelocity * maxVelocity;
+    if (enemyVelocity.lengthSq() > maxVelocitySq) {
+        enemyVelocity.normalize().multiplyScalar(maxVelocity);
     }
 
     // Stop completely if velocity is very low
@@ -1170,6 +1334,23 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
 
                 if (distanceSq < NODE_INTERACTION_DISTANCE * NODE_INTERACTION_DISTANCE) {
                     // Player is near this inactive node
+
+                    // Check if activation is just starting (progress is 0)
+                    if (nodeData.activationProgress === 0) {
+                        // Alert enemy if not already hunting or sleeping
+                        if (enemyState.currentState !== EnemyAIState.HUNTING && 
+                            enemyState.currentState !== EnemyAIState.SLEEPING &&
+                            (enemyState.priorityTargetNodeId !== nodeData.id || // Not already targeting this specific node by ID
+                             !enemyState.priorityTargetNodePosition || 
+                             enemyState.priorityTargetNodePosition.distanceToSquared(_targetWorldPos) > 0.1) 
+                           )
+                        { 
+                            console.log(`ENEMY ALERT: Player started activating node ${nodeData.id} (Progress was 0).`);
+                            alertEnemyToNodeActivation(_targetWorldPos.clone(), nodeData.id); // Pass node ID
+                        }
+                    }
+
+                    // Increment timer and calculate progress regardless of alert
                     enemyState.activationTimers[nodeData.id] += deltaTime;
                     nodeData.activationProgress = Math.min(1.0, enemyState.activationTimers[nodeData.id] / NODE_ACTIVATION_DURATION);
 
@@ -1278,6 +1459,7 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
              enemyState.patrolTimer = 0; // Reset timers
              enemyState.sleepTimer = 0;
              enemyState.statusText = "Deactivated"; 
+             enemyState.speedMultiplier = 1.0; // Reset speed multiplier
              playAppropriateMusic(false); // Start fade to normal music immediately
              despawnDeactivationNodes();
              triggerScreenShake(1.2, 1.5); // <<< Increased Duration (was 0.7)
@@ -1315,6 +1497,76 @@ export function updateEnemy(deltaTime, playerMesh, playerVelocity, triggerScreen
         updateNodeToEnemyLines(finalLocalPos); // Pass enemy's local pos
     }
     // ---------------------------------------------
+
+    // --- NEW: Proximity-Based Player Detection (Overrides some states if player gets too close) ---
+    if (playerMesh && enemyState.currentState !== EnemyAIState.SLEEPING) {
+        playerMesh.getWorldPosition(_playerWorldPos); // Ensure player world position is up-to-date
+        const distanceToPlayerSq = _enemyWorldPos.distanceToSquared(_playerWorldPos);
+
+        if (distanceToPlayerSq < ENEMY_PROXIMITY_ALERT_RADIUS * ENEMY_PROXIMITY_ALERT_RADIUS) {
+            if (enemyState.currentState !== EnemyAIState.HUNTING) {
+                // Don't interrupt if already hunting, but can pull out of other states like PATROLLING, SCANNING, SEARCHING_AREA
+                // or even TARGETING_NODE if the player is closer than the node and this becomes higher priority.
+                // For now, let's make it interrupt anything but SLEEPING.
+                console.log(`ENEMY STATE: Player detected by proximity! Switching to HUNTING. Current state: ${enemyState.currentState}`);
+                
+                // Stop any ongoing sounds from previous states
+                if (scanningSound && enemyState.isScanningSoundPlaying) {
+                    scanningSound.stop();
+                    enemyState.isScanningSoundPlaying = false;
+                }
+                if (movementSound && enemyState.isMovingSoundPlaying && enemyState.currentState === EnemyAIState.SCANNING) { // e.g. if was scanning (not moving)
+                    movementSound.stop(); // Should be stopped anyway but ensure
+                    enemyState.isMovingSoundPlaying = false;
+                }
+
+                enemyState.currentState = EnemyAIState.HUNTING;
+                enemyState.timeInSpotlight = 0; // Reset spotlight timer, though not directly used for this detection
+                enemyState.timeSincePlayerSeen = 0; // Player is currently "seen" by proximity
+                enemyState.lastKnownPlayerWorldPos.copy(_playerWorldPos);
+                enemyState.statusText = "Hunting (Proximity Alert)";
+                enemyState.speedMultiplier = 1.5; // Slightly increased speed for proximity hunt initial engagement
+                
+                triggerScreenShake(0.5, 0.8); // Moderate shake
+                playAppropriateMusic(true); // Ensure danger music
+
+                if (enemyState.actions.walk) {
+                    enemyState.actions.walk.timeScale = 1; // Ensure walking
+                    if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) {
+                        enemyState.actions.walk.fadeIn(FADE_DURATION);
+                    } else {
+                        enemyState.actions.walk.weight = 1.0;
+                    }
+                }
+                // Play detection sounds (uses the same cooldown mechanism)
+                const nowSeconds = performance.now() / 1000;
+                if (nowSeconds - enemyState.lastDetectionSoundTime > DETECTION_SOUND_COOLDOWN) {
+                    const roarSound = window.loadedSounds?.enemyRoarSound;
+                    if (roarSound && !roarSound.isPlaying && roarSound.context.state === 'running') {
+                        if (roarSound.parent !== enemyState.mesh) enemyState.mesh.add(roarSound);
+                        roarSound.play();
+                        enemyState.lastDetectionSoundTime = nowSeconds;
+                        console.log(`[Enemy Sound] Proximity: Played Roar. Time: ${nowSeconds.toFixed(1)}`);
+                    }
+                    if (window.loadedSounds?.alarmSirenSound && !window.loadedSounds.alarmSirenSound.isPlaying && window.loadedSounds.alarmSirenSound.context.state === 'running') {
+                        window.loadedSounds.alarmSirenSound.play();
+                        console.log(`[Enemy Sound] Proximity: Played Siren. Time: ${nowSeconds.toFixed(1)}`);
+                    }
+                }
+            }
+        } else {
+            // If player was previously hunted due to proximity and moves out of radius,
+            // the normal HUNTING logic (timeSincePlayerSeen) will take over.
+            // Reset speed multiplier if it was set by proximity and now out of range, ONLY if not actively hunting via spotlight.
+            if (enemyState.speedMultiplier > 1.0 && enemyState.currentState !== EnemyAIState.HUNTING && enemyState.currentState !== EnemyAIState.TARGETING_NODE) {
+                 // Check if not hunting due to spotlight before resetting.
+                 // This is a bit tricky as isPlayerInSpotlight isn't directly telling us *why* we are hunting.
+                 // For now, if we exit proximity, and we are NOT in hunting/targeting_node, reset multiplier.
+                 enemyState.speedMultiplier = 1.0;
+            }
+        }
+    }
+    // --- END Proximity Detection ---
 }
 
 function getFibonacciPatrolPoint(planetRadius) {
@@ -1608,7 +1860,7 @@ function despawnDeactivationNodes() {
     enemyState.deactivationNodes = [];
     enemyState.activationTimers = {};
     console.log("[Nodes] All nodes and resources cleaned up.");
-}
+} 
 
 // <<< ADD BACK MISSING FUNCTION >>>
 /**
@@ -1750,3 +2002,44 @@ function updateNodeToEnemyLines(enemyLocalPos) {
         }
     });
 } 
+
+// NEW function to alert enemy to node activation
+export function alertEnemyToNodeActivation(nodeWorldPosition, nodeId) { // Added nodeId parameter
+    if (!enemyState || !enemyState.isInitialized || enemyState.currentState === EnemyAIState.SLEEPING) {
+        return; // Don't react if not initialized or sleeping
+    }
+
+    // Allow alert to interrupt SEARCHING_AREA state
+    if (enemyState.currentState === EnemyAIState.HUNTING && enemyState.timeSincePlayerSeen < (config.HUNT_GIVE_UP_TIME / 2) ) {
+         console.log("[Enemy Alert] Already actively hunting player, ignoring node alert for now.");
+        return;
+    }
+    
+    console.log("ENEMY STATE: Alerted to node activation. Switching to TARGETING_NODE.");
+    console.log("ENEMY STATE: Entered TARGETING_NODE"); // Log entry
+    enemyState.currentState = EnemyAIState.TARGETING_NODE;
+    enemyState.priorityTargetNodePosition = nodeWorldPosition.clone();
+    enemyState.priorityTargetNodeId = nodeId; // Store the node ID
+    enemyState.scanTimer = 0; // Reset scan timer if it was scanning
+    enemyState.patrolTimer = 0; // Reset patrol timer
+    enemyState.speedMultiplier = 2.0; // << SET SPEED MULTIPLIER
+
+    // Ensure danger music is playing
+    playAppropriateMusic(true);
+
+    // Stop scanning sound if it was playing
+    const scanningSound = window.loadedSounds?.enemyScanningSound;
+    if (scanningSound && enemyState.isScanningSoundPlaying) {
+        scanningSound.stop();
+        enemyState.isScanningSoundPlaying = false;
+    }
+     // Ensure walk animation is playing
+    if (enemyState.actions.walk) {
+        enemyState.actions.walk.timeScale = 1;
+        if (enemyState.actions.walk?.getEffectiveWeight() === 0.0) {
+            enemyState.actions.walk.fadeIn(0.3); // General fade duration
+        } else {
+            enemyState.actions.walk.weight = 1.0;
+        }
+    }
+}

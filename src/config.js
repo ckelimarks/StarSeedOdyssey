@@ -190,15 +190,16 @@ export const PURPLE_TREE_SCALE = 0.7;
 
 // --- NEW: Enemy Deactivation Node Constants ---
 export const NODES_REQUIRED = 3;
-export const NODE_ACTIVATION_DURATION = 2.0; // seconds to stand near node
+export const NODE_ACTIVATION_DURATION = 5.0; // Increased from 2.0 seconds
 export const NODE_INTERACTION_DISTANCE = 5.0; // How close player needs to be to activate
 export const MIN_NODE_DISTANCE = 20.0; // Minimum distance between spawned nodes
 
 // Enemy Constants
 export const ENEMY_RADIUS = PLAYER_RADIUS * 5.0; // <<< INCREASED Multiplier AGAIN: Approximate radius for collision
-export const ENEMY_ACCELERATION = 15.0;
+export const ENEMY_ACCELERATION = 20.0; // Increased from 15.0
 export const ENEMY_FRICTION = 0.95;
-export const ENEMY_MAX_VELOCITY = 8.0;
+export const ENEMY_MAX_VELOCITY = 12.0; // Increased from 8.0
+export const ENEMY_PROXIMITY_ALERT_RADIUS = 20.0; // NEW: Radius for detecting player nearby
 
 // --- Audio System Constants ---
 // ... existing code ...

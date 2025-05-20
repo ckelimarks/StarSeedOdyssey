@@ -109,8 +109,15 @@ export function createSphere(radius, color, position, name, isHome = false) {
     const sphere = new THREE.Mesh(geometry, material);
     // Configure shadows for non-star spheres
     if (name !== 'star') {
+        if (isHome) {
         sphere.castShadow = true;
         sphere.receiveShadow = true;
+            console.log(`Planet ${name} (HOME): Shadows ENABLED`);
+        } else {
+            sphere.castShadow = false;
+            sphere.receiveShadow = false;
+            console.log(`Planet ${name} (NON-HOME): Shadows DISABLED`);
+        }
     }
     sphere.position.copy(position);
     if (name) {
